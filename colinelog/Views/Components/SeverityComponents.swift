@@ -101,7 +101,7 @@ struct ColinLogRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 2) {
                     Text(log.createdAt.colinMonthDay).font(.caption).bold().monospacedDigit()
-                    Text(log.createdAt.colinTimeHHmm).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                    Text(log.createdAt.colinTimeHHmm).font(.caption).bold().monospacedDigit()
                 }
                 HStack(spacing: 6) { triggerTag; responseTag }
                 Text(log.detail ?? "詳細はありません").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
