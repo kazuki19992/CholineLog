@@ -10,8 +10,18 @@ import Testing
 
 struct colinelogTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    @Test func severityStars() throws {
+        let log = ColinLog(severity: .level3, response: .none, sweating: .none)
+        #expect(log.severityStars == "★★★☆☆")
     }
 
+    @Test func responseDescriptionOther() throws {
+        let log = ColinLog(severity: .level1, response: .other, responseOtherNote: "氷嚢", sweating: .little)
+        #expect(log.responseDescription == "氷嚢")
+    }
+
+    @Test func responseDescriptionOtherEmptyFallsBack() throws {
+        let log = ColinLog(severity: .level2, response: .other, responseOtherNote: "   ", sweating: .moist)
+        #expect(log.responseDescription == "その他")
+    }
 }
