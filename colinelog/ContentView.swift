@@ -7,24 +7,34 @@
 
 import SwiftUI
 import SwiftData
+import Charts // 追加
 
-struct ContentView: View {
+// ルート: 単一概要ビュー (TabView 削除)
+struct OverviewView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showAddSheet = false
-    // 編集用: Bool 排除し item シートに一本化
     @State private var editingLog: ColinLog? = nil
     @Query(sort: [SortDescriptor(\ColinLog.createdAt, order: .reverse)]) private var logs: [ColinLog]
-
     var body: some View {
         ZStack { backgroundGradient
-            NavigationStack { listContent }
-                .background(Color.clear)
+            NavigationStack {
+                GeometryReader { geo in
+                    VStack(spacing: 0) {
+                        SeverityTimeChart(logs: logs)
+                            .frame(height: max(180, geo.size.height * 0.45))
+                            .padding([.top, .horizontal])
+                        Divider().opacity(0.3)
+                        listContent
+                    }
+                }
+                .navigationTitle("概要")
+                .toolbarTitleDisplayMode(.inline)
+                .toolbar { toolbarItems }
+                .sheet(isPresented: $showAddSheet) { AddColinLogView() }
+                .sheet(item: $editingLog) { log in EditColinLogView(log: log) }
+            }
+            .background(Color.clear)
         }
-    }
-
-    private var backgroundGradient: some View {
-        LinearGradient(colors: [.blue, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-            .ignoresSafeArea()
     }
 
     private var listContent: some View {
@@ -39,14 +49,11 @@ struct ContentView: View {
         .scrollContentBackground(.hidden)
         .listStyle(.plain)
         .background(Color.clear)
-        .navigationTitle("コリンログ")
-        .toolbar { toolbarItems }
-        .sheet(isPresented: $showAddSheet) { AddColinLogView() }
-        .sheet(item: $editingLog) { log in
-            EditColinLogView(log: log)
-        }
-        // プリウォーム: 重いコントロール(DatePicker 等)を一度レイアウトさせ初回遅延を低減
-        .background(EditPrewarmView().allowsHitTesting(false).accessibilityHidden(true).opacity(0.01))
+    }
+
+    private var backgroundGradient: some View {
+        LinearGradient(colors: [.blue, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+            .ignoresSafeArea()
     }
 
     private var emptySection: some View {
@@ -88,8 +95,97 @@ struct ContentView: View {
     }
 
     private func deleteLogs(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets { modelContext.delete(logs[index]) }
+        withAnimation { offsets.forEach { modelContext.delete(logs[$0]) } }
+    }
+}
+
+// 時刻×症状レベル折れ線グラフ
+private struct SeverityTimeChart: View {
+    let logs: [ColinLog]
+    private var sortedLogs: [ColinLog] { logs.sorted { $0.createdAt < $1.createdAt } }
+    private var todayLogs: [ColinLog] {
+        let cal = Calendar.current
+        return sortedLogs.filter { cal.isDateInToday($0.createdAt) }
+    }
+    private var displayLogs: [ColinLog] { todayLogs.isEmpty ? sortedLogs.suffix(20) : todayLogs }
+
+    // 基準日(今日) 0時
+    private var anchorStart: Date { Calendar.current.startOfDay(for: Date()) }
+    private var anchorEnd: Date { Calendar.current.date(byAdding: .hour, value: 24, to: anchorStart)! }
+
+    // 表示用ポイント: 各ログの「時刻」だけを今日に写像
+    private struct PlotPoint: Identifiable { let id = UUID(); let time: Date; let severity: Int; let original: ColinLog }
+    private var points: [PlotPoint] {
+        let cal = Calendar.current
+        return displayLogs.compactMap { log in
+            let comps = cal.dateComponents([.hour, .minute, .second], from: log.createdAt)
+            guard let h = comps.hour, let m = comps.minute, let s = comps.second else { return nil }
+            let mapped = cal.date(bySettingHour: h, minute: m, second: s, of: anchorStart) ?? log.createdAt
+            return PlotPoint(time: mapped, severity: log.severity.rawValue, original: log)
+        }.sorted { $0.time < $1.time }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("症状レベル推移")
+                    .font(.headline)
+                Text("(0-24h)").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+            }
+            if points.isEmpty {
+                ContentUnavailableView("データなし", systemImage: "chart.xyaxis.line", description: Text("ログを追加するとここに表示されます"))
+                    .frame(maxWidth: .infinity, minHeight: 160)
+            } else {
+                Chart(points) { pt in
+                    LineMark(
+                        x: .value("時刻", pt.time),
+                        y: .value("症状", pt.severity)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(Gradient(colors: [.red, .orange, .blue]).opacity(0.4))
+                    PointMark(
+                        x: .value("時刻", pt.time),
+                        y: .value("症状", pt.severity)
+                    )
+                    .foregroundStyle(color(for: pt.original.severity))
+                    .annotation(position: .overlay, alignment: .top) {
+                        Text(String(pt.severity))
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .chartXScale(domain: anchorStart...anchorEnd)
+                .chartYScale(domain: 1...5)
+                .chartYAxis {
+                    AxisMarks(values: [1,2,3,4,5]) { val in
+                        AxisGridLine()
+                        AxisTick()
+                        if let intVal = val.as(Int.self) { AxisValueLabel(String(intVal)) }
+                    }
+                }
+                .chartXAxis {
+                    let hours = stride(from: 0, through: 24, by: 3).map { Calendar.current.date(byAdding: .hour, value: $0, to: anchorStart)! }
+                    AxisMarks(values: hours) { value in
+                        AxisGridLine().foregroundStyle(.secondary.opacity(0.15))
+                        AxisTick()
+                        if let date = value.as(Date.self) {
+                            let h = Calendar.current.component(.hour, from: date)
+                            AxisValueLabel(String(format: "%02d:00", h))
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+    private func color(for severity: ColinLog.Severity) -> Color {
+        switch severity {
+        case .level1: return .blue
+        case .level2: return Color(hue: 0.47, saturation: 0.65, brightness: 0.88)
+        case .level3: return .yellow
+        case .level4: return .orange
+        case .level5: return .red
         }
     }
 }
@@ -160,6 +256,7 @@ private struct SweatLevelInline: View {
 }
 
 private struct ColinLogRow: View {
+    @Environment(\.colorScheme) private var colorScheme // 追加
     let log: ColinLog
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -199,13 +296,14 @@ private struct ColinLogRow: View {
 
     private func combinedTag(categoryLabel: String, accessibilityPrefix: String, icon: String, text: String, color: Color) -> some View {
         HStack(spacing: 4) { // 6 -> 4
+            let labelTextColor: Color = (colorScheme == .dark) ? .black : .white // 追加
             Text(categoryLabel)
                 .font(.system(size: 9, weight: .bold)) // 10 -> 9
                 .padding(.horizontal, 5) // 6 -> 5
                 .padding(.vertical, 2) // 3 -> 2
                 .background(color.opacity(0.9))
                 .clipShape(Capsule())
-                .foregroundStyle(Color.white)
+                .foregroundStyle(labelTextColor) // 変更
             HStack(spacing: 3) { // 4 -> 3
                 Image(systemName: icon)
                     .font(.caption2.bold())
@@ -249,11 +347,10 @@ private struct ColinLogRow: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView() // TabView 版
         .modelContainer(for: ColinLog.self, inMemory: true)
 }
-
-// プリウォーム用隠しビュー
+// 旧 Preview (OverviewView 単体) を差し替え
 private struct EditPrewarmView: View {
     @State private var date: Date = Date()
     @State private var tmpSeverity: ColinLog.Severity = .level1
@@ -287,5 +384,78 @@ private struct EditPrewarmView: View {
                 ForEach(ColinLog.SweatingLevel.allCases) { s in Text(s.label).tag(s) }
             }.pickerStyle(.segmented)
         }
+    }
+}
+
+// 2) 新しい TabView ルート ContentView を定義
+struct ContentView: View {
+    var body: some View {
+        TabView {
+            OverviewView()
+                .tabItem { Label("概要", systemImage: "chart.line.uptrend.xyaxis") }
+            LogsView()
+                .tabItem { Label("コリンログ", systemImage: "list.bullet.rectangle") }
+            ExportView()
+                .tabItem { Label("書き出し", systemImage: "square.and.arrow.up") }
+            SettingsView()
+                .tabItem { Label("設定", systemImage: "gearshape") }
+        }
+    }
+}
+
+// 3) コリンログ一覧タブ
+private struct LogsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var showAddSheet = false
+    @State private var editingLog: ColinLog? = nil
+    @Query(sort: [SortDescriptor(\ColinLog.createdAt, order: .reverse)]) private var logs: [ColinLog]
+    var body: some View {
+        NavigationStack {
+            List {
+                if logs.isEmpty { Section { Text("まだコリンログがありません").foregroundStyle(.secondary) } }
+                ForEach(logs) { log in
+                    NavigationLink { LogDetailView(log: log, editingLog: $editingLog) } label: { ColinLogRow(log: log) }
+                }
+                .onDelete(perform: deleteLogs)
+            }
+            .listStyle(.plain)
+            .navigationTitle("コリンログ")
+            .toolbar { toolbar }
+            .sheet(isPresented: $showAddSheet) { AddColinLogView() }
+            .sheet(item: $editingLog) { log in EditColinLogView(log: log) }
+        }
+    }
+    private func deleteLogs(offsets: IndexSet) { withAnimation { offsets.forEach { modelContext.delete(logs[$0]) } } }
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) { EditButton() }
+        ToolbarItem { Button(action: { showAddSheet = true }) { Label("追加", systemImage: "plus") } }
+    }
+}
+
+// 4) 書き出し / 設定 プレースホルダ
+private struct ExportView: View { var body: some View { NavigationStack { Text("書き出し (準備中)").foregroundStyle(.secondary).navigationTitle("書き出し") } } }
+private struct SettingsView: View { var body: some View { NavigationStack { Text("設定 (準備中)").foregroundStyle(.secondary).navigationTitle("設定") } } }
+
+// 5) 詳細ビュー再利用 (LogsView 用)
+private struct LogDetailView: View {
+    let log: ColinLog
+    @Binding var editingLog: ColinLog?
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("日時") { HStack(spacing: 8) { Text(log.createdAt.colinISODate); Text(log.createdAt.colinTimeHHmm); Spacer() }.font(.body.monospacedDigit()) }
+                GroupBox("強さ") { SeverityBadge(severity: log.severity, sweating: log.sweating) }
+                VStack(spacing: 12) {
+                    GroupBox("メインの発症原因") { Text(log.triggerDescription) }
+                    GroupBox("対応") { Text(log.responseDescription) }
+                }
+                if let detail = log.detail { GroupBox("詳細") { Text(detail) } }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle("詳細")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("編集") { editingLog = log } } }
     }
 }

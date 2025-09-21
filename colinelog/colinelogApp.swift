@@ -16,10 +16,13 @@ struct colinelogApp: App {
         nav.configureWithTransparentBackground()
         nav.backgroundColor = .clear
         nav.backgroundEffect = nil
+        let accent = UIColor(red: 0.0, green: 0.675, blue: 0.922, alpha: 1.0)
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
-        UINavigationBar.appearance().tintColor = .white
+        UINavigationBar.appearance().tintColor = accent
+        UITabBar.appearance().tintColor = accent
+        UITabBar.appearance().unselectedItemTintColor = UIColor.systemGray
         UITableView.appearance().backgroundColor = .clear
         UITableViewCell.appearance().backgroundColor = .clear
 #endif
@@ -41,6 +44,7 @@ struct colinelogApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(Color("AccentColor"))
         }
         .modelContainer(sharedModelContainer)
     }
