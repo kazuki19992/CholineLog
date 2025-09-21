@@ -14,18 +14,28 @@ struct OverviewView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showAddSheet = false
     @State private var editingLog: ColinLog? = nil
+    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date()) // 追加: 選択日
     @Query(sort: [SortDescriptor(\ColinLog.createdAt, order: .reverse)]) private var logs: [ColinLog]
+    private let calendar = Calendar.current
+    private var isToday: Bool { calendar.isDate(selectedDate, inSameDayAs: Date()) }
+    private var dayLogs: [ColinLog] { logs.filter { calendar.isDate($0.createdAt, inSameDayAs: selectedDate) } }
     var body: some View {
         ZStack { backgroundGradient
             NavigationStack {
                 GeometryReader { geo in
                     VStack(spacing: 0) {
-                        SeverityTimeChart(logs: logs)
-                            .frame(height: max(180, geo.size.height * 0.45))
-                            .padding([.top, .horizontal])
+                        dateNavigator
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+                        SeverityTimeChart(logs: dayLogs, baseDate: selectedDate)
+                            .frame(height: max(180, geo.size.height * 0.40))
+                            .padding(.horizontal)
                         Divider().opacity(0.3)
                         listContent
                     }
+                    .contentShape(Rectangle())
+                    .gesture(daySwipeGesture)
+                    .animation(.easeInOut, value: selectedDate)
                 }
                 .navigationTitle("概要")
                 .toolbarTitleDisplayMode(.inline)
@@ -37,14 +47,42 @@ struct OverviewView: View {
         }
     }
 
+    // 日付ナビゲーション
+    private var dateNavigator: some View {
+        HStack(spacing: 12) {
+            Button(action: previousDay) { Image(systemName: "chevron.left") }
+            Text(formattedSelectedDate)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                // .contentTransition(.numericText) // 対応OS差異で曖昧さ発生のため削除
+            Button(action: nextDay) { Image(systemName: "chevron.right") }
+                .disabled(isToday)
+                .opacity(isToday ? 0.3 : 1)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+    }
+    private var formattedSelectedDate: String {
+        let df = DateFormatter(); df.locale = Locale(identifier: "ja_JP"); df.dateFormat = "yyyy/MM/dd (E)"; return df.string(from: selectedDate)
+    }
+    private func previousDay() { if let d = calendar.date(byAdding: .day, value: -1, to: selectedDate) { selectedDate = d } }
+    private func nextDay() { guard !isToday else { return }; if let d = calendar.date(byAdding: .day, value: 1, to: selectedDate), d <= Date() { selectedDate = d } }
+    private var daySwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 40, coordinateSpace: .local)
+            .onEnded { value in
+                let dx = value.translation.width
+                if dx > 70 { previousDay() } else if dx < -70 { nextDay() }
+            }
+    }
+
     private var listContent: some View {
         List {
-            if logs.isEmpty { emptySection }
-            ForEach(logs) { log in
+            if dayLogs.isEmpty { emptySection }
+            ForEach(dayLogs) { log in
                 NavigationLink { detailView(log) } label: { ColinLogRow(log: log) }
                     .listRowBackground(Color.clear)
             }
-            .onDelete(perform: deleteLogs)
+            .onDelete(perform: deleteDayLogs)
         }
         .scrollContentBackground(.hidden)
         .listStyle(.plain)
@@ -94,84 +132,54 @@ struct OverviewView: View {
         .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("編集") { editingLog = log } } }
     }
 
-    private func deleteLogs(offsets: IndexSet) {
-        withAnimation { offsets.forEach { modelContext.delete(logs[$0]) } }
+    private func deleteDayLogs(offsets: IndexSet) {
+        withAnimation { for i in offsets { modelContext.delete(dayLogs[i]) } }
     }
+    private func deleteLogs(offsets: IndexSet) { /* 後方互換: 未使用 */ }
 }
 
 // 時刻×症状レベル折れ線グラフ
 private struct SeverityTimeChart: View {
-    let logs: [ColinLog]
-    private var sortedLogs: [ColinLog] { logs.sorted { $0.createdAt < $1.createdAt } }
-    private var todayLogs: [ColinLog] {
-        let cal = Calendar.current
-        return sortedLogs.filter { cal.isDateInToday($0.createdAt) }
-    }
-    private var displayLogs: [ColinLog] { todayLogs.isEmpty ? sortedLogs.suffix(20) : todayLogs }
-
-    // 基準日(今日) 0時
-    private var anchorStart: Date { Calendar.current.startOfDay(for: Date()) }
+    let logs: [ColinLog] // 選択日でフィルタ済み
+    let baseDate: Date   // 0-24h の基準日
+    private var anchorStart: Date { Calendar.current.startOfDay(for: baseDate) }
     private var anchorEnd: Date { Calendar.current.date(byAdding: .hour, value: 24, to: anchorStart)! }
-
-    // 表示用ポイント: 各ログの「時刻」だけを今日に写像
     private struct PlotPoint: Identifiable { let id = UUID(); let time: Date; let severity: Int; let original: ColinLog }
     private var points: [PlotPoint] {
         let cal = Calendar.current
-        return displayLogs.compactMap { log in
-            let comps = cal.dateComponents([.hour, .minute, .second], from: log.createdAt)
-            guard let h = comps.hour, let m = comps.minute, let s = comps.second else { return nil }
+        return logs.compactMap { log in
+            let c = cal.dateComponents([.hour, .minute, .second], from: log.createdAt)
+            guard let h = c.hour, let m = c.minute, let s = c.second else { return nil }
             let mapped = cal.date(bySettingHour: h, minute: m, second: s, of: anchorStart) ?? log.createdAt
             return PlotPoint(time: mapped, severity: log.severity.rawValue, original: log)
         }.sorted { $0.time < $1.time }
     }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("症状レベル推移")
-                    .font(.headline)
-                Text("(0-24h)").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }
+            HStack { Text("症状レベル推移").font(.headline); Spacer() }
             if points.isEmpty {
-                ContentUnavailableView("データなし", systemImage: "chart.xyaxis.line", description: Text("ログを追加するとここに表示されます"))
-                    .frame(maxWidth: .infinity, minHeight: 160)
+                ContentUnavailableView("データなし", systemImage: "chart.xyaxis.line", description: Text("この日にログはありません"))
+                    .frame(maxWidth: .infinity, minHeight: 140)
             } else {
                 Chart(points) { pt in
-                    LineMark(
-                        x: .value("時刻", pt.time),
-                        y: .value("症状", pt.severity)
-                    )
-                    .interpolationMethod(.monotone)
-                    .foregroundStyle(Gradient(colors: [.red, .orange, .blue]).opacity(0.4))
-                    PointMark(
-                        x: .value("時刻", pt.time),
-                        y: .value("症状", pt.severity)
-                    )
-                    .foregroundStyle(color(for: pt.original.severity))
-                    .annotation(position: .overlay, alignment: .top) {
-                        Text(String(pt.severity))
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.secondary)
-                    }
+                    LineMark(x: .value("時刻", pt.time), y: .value("症状", pt.severity))
+                        .interpolationMethod(.monotone)
+                    PointMark(x: .value("時刻", pt.time), y: .value("症状", pt.severity))
+                        .foregroundStyle(color(for: pt.original.severity))
+                        .symbolSize(40)
                 }
                 .chartXScale(domain: anchorStart...anchorEnd)
                 .chartYScale(domain: 1...5)
-                .chartYAxis {
-                    AxisMarks(values: [1,2,3,4,5]) { val in
-                        AxisGridLine()
-                        AxisTick()
-                        if let intVal = val.as(Int.self) { AxisValueLabel(String(intVal)) }
-                    }
-                }
+                .chartYAxis { AxisMarks(values: [1,2,3,4,5]) }
                 .chartXAxis {
-                    let hours = stride(from: 0, through: 24, by: 3).map { Calendar.current.date(byAdding: .hour, value: $0, to: anchorStart)! }
+                    let hours = stride(from: 0, through: 24, by: 6).map { Calendar.current.date(byAdding: .hour, value: $0, to: anchorStart)! }
                     AxisMarks(values: hours) { value in
                         AxisGridLine().foregroundStyle(.secondary.opacity(0.15))
                         AxisTick()
                         if let date = value.as(Date.self) {
-                            let h = Calendar.current.component(.hour, from: date)
-                            AxisValueLabel(String(format: "%02d:00", h))
+                            AxisValueLabel {
+                                Text(hourFormatter.string(from: date))
+                            }
                         }
                     }
                 }
@@ -180,13 +188,10 @@ private struct SeverityTimeChart: View {
         }
     }
     private func color(for severity: ColinLog.Severity) -> Color {
-        switch severity {
-        case .level1: return .blue
-        case .level2: return Color(hue: 0.47, saturation: 0.65, brightness: 0.88)
-        case .level3: return .yellow
-        case .level4: return .orange
-        case .level5: return .red
-        }
+        switch severity { case .level1: return .blue; case .level2: return Color(hue: 0.47, saturation: 0.65, brightness: 0.88); case .level3: return .yellow; case .level4: return .orange; case .level5: return .red }
+    }
+    private var hourFormatter: DateFormatter { // 追加
+        let df = DateFormatter(); df.dateFormat = "HH:mm"; return df
     }
 }
 
