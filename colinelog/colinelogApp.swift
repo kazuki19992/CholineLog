@@ -30,7 +30,7 @@ struct colinelogApp: App {
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            ColinLog.self,
+            ColinLog.self // Item を除外
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

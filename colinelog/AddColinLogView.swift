@@ -17,6 +17,8 @@ struct AddColinLogView: View {
     @State private var sweating: ColinLog.SweatingLevel = .none
     @State private var detail: String = ""
 
+    @State private var saveErrorMessage: String? = nil // 失敗時のみ表示
+
     private var canSave: Bool {
         if response == .other && responseOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         if trigger == .other && triggerOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
@@ -36,20 +38,18 @@ struct AddColinLogView: View {
             .navigationTitle("コリンログを追加")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action: save) {
-                        Text("保存").bold()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.accentColor)
-                    .disabled(!canSave)
-                    .accessibilityLabel("コリンログを保存")
+                    Button(action: save) { Text("保存").bold() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.accentColor)
+                        .disabled(!canSave)
                 }
             }
         }
+        .alert("保存エラー", isPresented: Binding(get: { saveErrorMessage != nil }, set: { if !$0 { saveErrorMessage = nil } })) {
+            Button("OK", role: .cancel) { saveErrorMessage = nil }
+        } message: { Text(saveErrorMessage ?? "") }
     }
 
     // MARK: セクション分割
@@ -128,7 +128,7 @@ struct AddColinLogView: View {
             detail: detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : detail
         )
         modelContext.insert(log)
-        dismiss()
+        do { try modelContext.save(); dismiss() } catch { saveErrorMessage = "保存に失敗しました: \(error.localizedDescription)" }
     }
 }
 
