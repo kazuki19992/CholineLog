@@ -6,16 +6,24 @@ struct LogDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                GroupBox("日時") { HStack(spacing: 8) { Text(log.createdAt.colinISODate); Text(log.createdAt.colinTimeHHmm); Spacer() }.font(.body.monospacedDigit()) }
-                GroupBox("強さ") {
-                    SeverityBadge(severity: log.severity)
-                    SweatLevelInline(sweating: log.sweating)
+                if log.kind == .memo {
+                    GroupBox("日時") {
+                        HStack(spacing: 8) { Text(log.createdAt.colinISODate); Text(log.createdAt.colinTimeHHmm); Spacer() }
+                            .font(.body.monospacedDigit())
+                    }
+                    GroupBox("メモ") { Text(log.detail ?? "(内容なし)") }
+                } else {
+                    GroupBox("日時") { HStack(spacing: 8) { Text(log.createdAt.colinISODate); Text(log.createdAt.colinTimeHHmm); Spacer() }.font(.body.monospacedDigit()) }
+                    GroupBox("強さ") {
+                        SeverityBadge(severity: log.severity)
+                        SweatLevelInline(sweating: log.sweating)
+                    }
+                    VStack(spacing: 12) {
+                        GroupBox("メインの発症原因") { Text(log.triggerDescription) }
+                        GroupBox("対応") { Text(log.responseDescription) }
+                    }
+                    if let detail = log.detail { GroupBox("詳細") { Text(detail) } }
                 }
-                VStack(spacing: 12) {
-                    GroupBox("メインの発症原因") { Text(log.triggerDescription) }
-                    GroupBox("対応") { Text(log.responseDescription) }
-                }
-                if let detail = log.detail { GroupBox("詳細") { Text(detail) } }
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)

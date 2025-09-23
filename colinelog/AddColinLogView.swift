@@ -16,10 +16,14 @@ struct AddColinLogView: View {
     @State private var triggerOther: String = ""
     @State private var sweating: ColinLog.SweatingLevel = .none
     @State private var detail: String = ""
+    @State private var kind: ColinLog.Kind = .symptom // デフォルト症状ログ
+
+    // 削除: kindEffective ブリッジ不要になったため
 
     @State private var saveErrorMessage: String? = nil // 失敗時のみ表示
 
     private var canSave: Bool {
+        if kind == .memo { return true }
         if response == .other && responseOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         if trigger == .other && triggerOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         return true
@@ -29,10 +33,13 @@ struct AddColinLogView: View {
         NavigationStack {
             Form {
                 dateSection
-                strengthSection
-                responseSection
-                triggerSection
-                sweatingSection
+                kindSection
+                if kind == .symptom {
+                    strengthSection
+                    responseSection
+                    triggerSection
+                    sweatingSection
+                }
                 detailSection
             }
             .navigationTitle("コリンログを追加")
@@ -80,6 +87,17 @@ struct AddColinLogView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    private var kindSection: some View {
+        Section("") { // 見出しなし
+            Picker("種別", selection: $kind) {
+                ForEach(ColinLog.Kind.allCases) { k in
+                    Text(k.label).tag(k)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     private var strengthSection: some View {
         Section("強さ") { SeveritySelector(selected: $severity) }
     }
@@ -110,7 +128,7 @@ struct AddColinLogView: View {
     }
 
     private var detailSection: some View {
-        Section("詳細") {
+        Section(kind == .symptom ? "詳細" : "メモ") {
             TextEditor(text: $detail)
                 .frame(minHeight: 120)
         }
@@ -119,13 +137,14 @@ struct AddColinLogView: View {
     private func save() {
         let log = ColinLog(
             createdAt: date,
-            severity: severity,
+            severity: severity, // メモでも内部的に保持（解析でフィルタ可能）
             response: response,
             responseOtherNote: response == .other ? responseOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
             trigger: trigger,
             triggerOtherNote: trigger == .other ? triggerOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
             sweating: sweating,
-            detail: detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : detail
+            detail: detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : detail,
+            kind: kind
         )
         modelContext.insert(log)
         do { try modelContext.save(); dismiss() } catch { saveErrorMessage = "保存に失敗しました: \(error.localizedDescription)" }

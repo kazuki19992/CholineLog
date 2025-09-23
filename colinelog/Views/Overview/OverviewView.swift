@@ -79,7 +79,7 @@ private extension OverviewView {
     var logsSection: some View {
         LazyVStack(spacing: 8) { // 行間少し広げる
             ForEach(dayLogs) { log in
-                NavigationLink { DetailView(log: log, editingLog: $editingLog) } label: {
+                NavigationLink { LogDetailView(log: log, editingLog: $editingLog) } label: { // 共通詳細ビューへ統一
                     ColinLogRow(log: log)
                         .padding(.vertical, 8) // 旧:4 -> 拡大
                         .contentShape(Rectangle())
@@ -154,43 +154,5 @@ private extension OverviewView {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(tint.opacity(0.15), lineWidth: 1)
             )
-    }
-}
-
-// MARK: - Detail View (既存そのまま)
-struct DetailView: View {
-    let log: ColinLog
-    @Binding var editingLog: ColinLog?
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) { // 余白拡大
-                GroupBox("日時") {
-                    HStack(spacing: 8) {
-                        Text(log.createdAt.colinISODate)
-                        Text(log.createdAt.colinTimeHHmm)
-                        Spacer()
-                    }
-                    .font(.body.monospacedDigit())
-                }
-                GroupBox("強さ") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SeverityBadge(severity: log.severity)
-                        SweatLevelInline(sweating: log.sweating)
-                    }
-                }
-                VStack(spacing: 16) {
-                    GroupBox("メインの発症原因") { Text(log.triggerDescription) }
-                    GroupBox("対応") { Text(log.responseDescription) }
-                }
-                if let detail = log.detail { GroupBox("詳細") { Text(detail) } }
-            }
-            .padding(.horizontal)
-            .padding(.top, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Color.clear)
-        .navigationTitle("詳細")
-        .toolbarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("編集") { editingLog = log } } }
     }
 }

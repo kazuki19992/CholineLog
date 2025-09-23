@@ -10,12 +10,15 @@ struct SeverityTimeChart: View {
     private struct PlotPoint: Identifiable { let id = UUID(); let time: Date; let severity: Int; let original: ColinLog }
     private var points: [PlotPoint] {
         let cal = Calendar.current
-        return logs.compactMap { log in
-            let c = cal.dateComponents([.hour, .minute, .second], from: log.createdAt)
-            guard let h = c.hour, let m = c.minute, let s = c.second else { return nil }
-            let mapped = cal.date(bySettingHour: h, minute: m, second: s, of: anchorStart) ?? log.createdAt
-            return PlotPoint(time: mapped, severity: log.severity.rawValue, original: log)
-        }.sorted { $0.time < $1.time }
+        return logs
+            .filter { $0.kind == .symptom } // メモ除外
+            .compactMap { log in
+                let c = cal.dateComponents([.hour, .minute, .second], from: log.createdAt)
+                guard let h = c.hour, let m = c.minute, let s = c.second else { return nil }
+                let mapped = cal.date(bySettingHour: h, minute: m, second: s, of: anchorStart) ?? log.createdAt
+                return PlotPoint(time: mapped, severity: log.severity.rawValue, original: log)
+            }
+            .sorted { $0.time < $1.time }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -115,23 +118,63 @@ struct SweatLevelInline: View {
 struct ColinLogRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let log: ColinLog
+    var fullDetail: Bool = false
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            VStack(spacing: 4) {
-                SeverityBadge(severity: log.severity)
-                SweatLevelInline(sweating: log.sweating)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 2) {
-                    Text(log.createdAt.colinMonthDay).font(.caption).bold().monospacedDigit()
-                    Text(log.createdAt.colinTimeHHmm).font(.caption).bold().monospacedDigit()
+        if log.kind == .memo {
+            HStack(alignment: .top, spacing: 8) {
+                memoBadge
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text(log.createdAt.colinMonthDay).font(.caption).bold().monospacedDigit()
+                        Text(log.createdAt.colinTimeHHmm).font(.caption).bold().monospacedDigit()
+                        Spacer(minLength: 0)
+                    }
+                    Text(log.detail ?? "(内容なし)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(fullDetail ? nil : 2)
                 }
-                HStack(spacing: 6) { triggerTag; responseTag }
-                Text(log.detail ?? "詳細はありません").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
             }
-            Spacer()
+            .frame(minHeight: 52)
+        } else {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(spacing: 4) {
+                    SeverityBadge(severity: log.severity)
+                    SweatLevelInline(sweating: log.sweating)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 2) {
+                        Text(log.createdAt.colinMonthDay).font(.caption).bold().monospacedDigit()
+                        Text(log.createdAt.colinTimeHHmm).font(.caption).bold().monospacedDigit()
+                    }
+                    HStack(spacing: 6) { triggerTag; responseTag }
+                    Text(log.detail ?? "詳細はありません")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(fullDetail ? nil : 1)
+                }
+                Spacer()
+            }
+            .frame(minHeight: 64)
         }
-        .frame(minHeight: 64)
+    }
+    private var memoBadge: some View {
+        VStack(spacing: 2) {
+            Image(systemName: "note.text")
+                .font(.caption2.bold())
+                .foregroundColor(.white)
+            Text("メモ")
+                .font(.caption2)
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: SeverityBadge.fixedWidth)
+        .padding(.vertical, 6)
+        .background(Color.gray.opacity(0.85))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityLabel("メモ")
     }
     private var triggerTag: some View { combinedTag(label: "原因", icon: log.trigger.iconSystemName, text: log.triggerDescription, color: triggerColor(log.trigger)) }
     private var responseTag: some View { combinedTag(label: "対処", icon: log.response.iconSystemName, text: log.responseDescription, color: responseColor(log.response)) }

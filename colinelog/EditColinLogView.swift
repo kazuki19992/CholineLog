@@ -16,29 +16,43 @@ struct EditColinLogView: View {
 
     @State private var date: Date = Date()
 
+    @State private var previousKind: ColinLog.Kind
+
     // 初期化で現在値を State にコピー
     init(log: ColinLog) {
         self.log = log
         _date = State(initialValue: log.createdAt)
         _responseOther = State(initialValue: log.responseOtherNote ?? "")
         _triggerOther = State(initialValue: log.triggerOtherNote ?? "")
+        _previousKind = State(initialValue: log.kind)
     }
 
     private var canSave: Bool {
+        if log.kind == .memo { return true }
         if log.response == .other && responseOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         if log.trigger == .other && triggerOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         return true
     }
 
+    private var kindBinding: Binding<ColinLog.Kind> {
+        Binding<ColinLog.Kind>(
+            get: { log.kind },
+            set: { newVal in log.kind = newVal }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                kindSection
                 dateSection
-                Section("強さ") { SeveritySelectorEdit(selected: $log.severity) }
-                Section("対応") { responseSection }
-                Section("メインの発症原因") { triggerSection }
-                Section("発汗") { sweatingSection }
-                Section("詳細") { detailSection }
+                if log.kind == .symptom {
+                    Section("強さ") { SeveritySelectorEdit(selected: $log.severity) }
+                    Section("対応") { responseSection }
+                    Section("メインの発症原因") { triggerSection }
+                    Section("発汗") { sweatingSection }
+                }
+                Section(log.kind == .symptom ? "詳細" : "メモ") { detailSection }
             }
             .navigationTitle("編集")
             .toolbarTitleDisplayMode(.inline)
@@ -48,9 +62,38 @@ struct EditColinLogView: View {
             }
         }
         .onAppear { syncStateFromModel() }
+        .onChange(of: log.kind) { _ in
+            let newKind = log.kind
+            guard newKind != previousKind else { return }
+            if newKind == .memo {
+                log.response = .none
+                log.responseOtherNote = nil
+                responseOther = ""
+                log.trigger = .stressEmotion
+                log.triggerOtherNote = nil
+                triggerOther = ""
+                log.sweating = .none
+                log.severity = .level1
+            } else {
+                log.severity = .level1
+                log.response = .none
+                log.trigger = .stressEmotion
+                log.sweating = .none
+            }
+            previousKind = newKind
+        }
     }
 
     // MARK: Sections
+    private var kindSection: some View {
+        Section("種別") {
+            Picker("種別", selection: kindBinding) {
+                ForEach(ColinLog.Kind.allCases) { k in Text(k.label).tag(k) }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     private var dateSection: some View {
         Section("日時") {
             ZStack(alignment: .leading) {
@@ -106,9 +149,13 @@ struct EditColinLogView: View {
     // MARK: Save
     private func applyAndDismiss() {
         log.createdAt = date
-        log.responseOtherNote = log.response == .other ? responseOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-        log.triggerOtherNote = log.trigger == .other ? triggerOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-        // SwiftData は自動保存トランザクション。明示的保存が必要なら try? modelContext.save()
+        if log.kind == .symptom {
+            log.responseOtherNote = log.response == .other ? responseOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+            log.triggerOtherNote = log.trigger == .other ? triggerOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        } else {
+            log.responseOtherNote = nil
+            log.triggerOtherNote = nil
+        }
         dismiss()
     }
 

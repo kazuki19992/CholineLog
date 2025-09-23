@@ -88,6 +88,13 @@ final class ColinLog {
         }
     }
 
+    enum Kind: String, CaseIterable, Identifiable, Codable {
+        case symptom
+        case memo
+        var id: String { rawValue }
+        var label: String { self == .symptom ? "症状ログ" : "メモ" }
+    }
+
     var createdAt: Date
     var severity: Severity
     var response: ResponseAction
@@ -96,8 +103,9 @@ final class ColinLog {
     var triggerOtherNote: String?
     var sweating: SweatingLevel
     var detail: String?
+    var kind: Kind
 
-    init(createdAt: Date = Date(), severity: Severity, response: ResponseAction, responseOtherNote: String? = nil, trigger: Trigger = .stressEmotion, triggerOtherNote: String? = nil, sweating: SweatingLevel, detail: String? = nil) {
+    init(createdAt: Date = Date(), severity: Severity, response: ResponseAction, responseOtherNote: String? = nil, trigger: Trigger = .stressEmotion, triggerOtherNote: String? = nil, sweating: SweatingLevel, detail: String? = nil, kind: Kind = .symptom) {
         self.createdAt = createdAt
         self.severity = severity
         self.response = response
@@ -106,6 +114,7 @@ final class ColinLog {
         self.triggerOtherNote = triggerOtherNote?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : triggerOtherNote
         self.sweating = sweating
         self.detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : detail
+        self.kind = kind
     }
 }
 
