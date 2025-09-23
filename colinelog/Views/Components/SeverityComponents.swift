@@ -21,22 +21,29 @@ struct SeverityTimeChart: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text("症状レベル推移").font(.headline); Spacer() }
             if points.isEmpty {
-                ContentUnavailableView("データなし", systemImage: "chart.xyaxis.line", description: Text("この日にログはありません"))
+                ContentUnavailableView("データなし", systemImage: "chart.bar.xaxis", description: Text("この日にログはありません"))
                     .frame(maxWidth: .infinity, minHeight: 140)
             } else {
                 Chart(points) { pt in
-                    LineMark(x: .value("時刻", pt.time), y: .value("症状", pt.severity)).interpolationMethod(.monotone)
-                    PointMark(x: .value("時刻", pt.time), y: .value("症状", pt.severity))
-                        .foregroundStyle(color(for: pt.original.severity))
-                        .symbolSize(40)
+                    // 棒グラフ (BarMark を使用)
+                    BarMark(
+                        x: .value("時刻", pt.time),
+                        y: .value("症状", pt.severity)
+                    )
+                    .foregroundStyle(gradient(for: pt.severity))
+                    .cornerRadius(4)
+                    .annotation(position: .top, alignment: .center) {
+                        // 小さな数値ラベル（バーが高い場合のみ）
+                        if pt.severity >= 4 { Text("\(pt.severity)").font(.caption2).bold().foregroundStyle(.secondary) }
+                    }
                 }
                 .chartXScale(domain: anchorStart...anchorEnd)
-                .chartYScale(domain: 1...5)
-                .chartYAxis { AxisMarks(values: [1,2,3,4,5]) }
+                .chartYScale(domain: 0...5) // 0 起点でバーの高さが直感的
+                .chartYAxis { AxisMarks(values: [0,1,2,3,4,5]) }
                 .chartXAxis {
                     let hours = stride(from: 0, through: 24, by: 6).map { Calendar.current.date(byAdding: .hour, value: $0, to: anchorStart)! }
                     AxisMarks(values: hours) { value in
-                        AxisGridLine().foregroundStyle(.secondary.opacity(0.15))
+                        AxisGridLine().foregroundStyle(.secondary.opacity(0.12))
                         AxisTick()
                         if let date = value.as(Date.self) { AxisValueLabel { Text(hourFormatter.string(from: date)) } }
                     }
@@ -45,8 +52,24 @@ struct SeverityTimeChart: View {
             }
         }
     }
-    private func color(for severity: ColinLog.Severity) -> Color {
-        switch severity { case .level1: return .blue; case .level2: return Color(hue: 0.47, saturation: 0.65, brightness: 0.88); case .level3: return .yellow; case .level4: return .orange; case .level5: return .red }
+    // ベース色 (severityごとに赤に近づく)
+    private func baseColor(for severity: Int) -> Color {
+        switch severity {
+        case 1: return .blue
+        case 2: return .teal
+        case 3: return .yellow
+        case 4: return .orange
+        default: return .red
+        }
+    }
+    // バー内グラデーション: 下からレベル到達色まで段階色を積み上げ (1:青 / 2:青→緑 / 3:青→緑→黄 / 4:青→緑→黄→オレンジ / 5:青→緑→黄→オレンジ→赤)
+    private func gradient(for severity: Int) -> LinearGradient {
+        let palette: [Color] = [.blue, .green, .yellow, .orange, .red]
+        let capped = max(1, min(severity, palette.count))
+        let slice = Array(palette.prefix(capped))
+        // 単色の場合は二重にしてグラデーション表現を維持
+        let colors: [Color] = slice.count == 1 ? [slice[0], slice[0]] : slice
+        return LinearGradient(colors: colors, startPoint: .bottom, endPoint: .top)
     }
     private var hourFormatter: DateFormatter { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f }
 }
@@ -127,6 +150,28 @@ struct ColinLogRow: View {
         .background(Capsule().fill(color.opacity(0.12)))
         .overlay(Capsule().stroke(color.opacity(0.4), lineWidth: 1))
     }
-    private func triggerColor(_ t: ColinLog.Trigger)->Color { switch t {case .stressEmotion: return .orange; case .exercise: return .green; case .bath: return .teal; case .highTemp: return .red; case .afterSweat: return .blue; case .spicyHotIntake: return .pink; case .other: return .gray} }
-    private func responseColor(_ r: ColinLog.ResponseAction)->Color { switch r {case .none: return .gray; case .icePack: return .cyan; case .shower: return .teal; case .coolSpray: return .mint; case .antiItch: return .purple; case .scratched: return .orange; case .other: return .gray} }
+    private func triggerColor(_ t: ColinLog.Trigger) -> Color {
+        switch t {
+        case .stressEmotion: return .orange
+        case .exercise: return .green
+        case .bath: return .teal
+        case .highTemp: return .red
+        case .afterSweat: return .blue
+        case .spicyHotIntake: return .pink
+        case .dontKnow: return .gray
+        case .other: return .gray
+        }
+    }
+    private func responseColor(_ r: ColinLog.ResponseAction) -> Color {
+        switch r {
+        case .none: return .gray
+        case .icePack: return .cyan
+        case .shower: return .teal
+        case .coolSpray: return .mint
+        case .coolPlace: return .cyan
+        case .antiItch: return .purple
+        case .scratched: return .orange
+        case .other: return .gray
+        }
+    }
 }

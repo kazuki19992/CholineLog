@@ -4,7 +4,7 @@ import Combine
 
 struct LogsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.editMode) private var editMode // 追加
+    @Environment(\.editMode) private var editMode
     @StateObject private var vm = LogsViewModel()
     @State private var showAddSheet = false
     @State private var editingLog: ColinLog? = nil
@@ -34,11 +34,6 @@ struct LogsView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) { // 位置変更
-            Button(editMode?.wrappedValue == .active ? "完了" : "編集") {
-                withAnimation { editMode?.wrappedValue = editMode?.wrappedValue == .active ? .inactive : .active }
-            }
-        }
         ToolbarItem(placement: .navigationBarTrailing) { // 明示指定
             Button(action: { showAddSheet = true }) { Label("追加", systemImage: "plus") }
         }

@@ -28,6 +28,7 @@ final class ColinLog {
         case icePack // 保冷剤を当てた
         case shower // 水を浴びた
         case coolSpray // 冷感スプレーを使用した
+        case coolPlace // 涼しい場所に避難した / 送風で冷ました
         case antiItch // かゆみ止めを使用した
         case scratched // 掻きむしってしまった
         case other // その他
@@ -37,13 +38,14 @@ final class ColinLog {
             case .none: return "何もしなかった"
             case .icePack: return "保冷剤を当てた"
             case .shower: return "水を浴びた"
-            case .coolSpray: return "冷感スプレーを使用した"
-            case .antiItch: return "かゆみ止めを使用した"
-            case .scratched: return "掻きむしってしまった"
+            case .coolSpray: return "冷感スプレー"
+            case .coolPlace: return "涼しい場所に避難した"
+            case .antiItch: return "かゆみ止め"
+            case .scratched: return "掻いた"
             case .other: return "その他"
             }
         }
-        static var allCases: [ResponseAction] { [.none, .icePack, .coolSpray, .shower, .antiItch, .scratched, .other] }
+        static var allCases: [ResponseAction] { [.none, .icePack, .coolSpray, .coolPlace, .shower, .antiItch, .scratched, .other] }
     }
 
     enum SweatingLevel: String, CaseIterable, Identifiable, Codable {
@@ -63,22 +65,24 @@ final class ColinLog {
     }
 
     enum Trigger: String, CaseIterable, Identifiable, Codable {
-        case stressEmotion    // ストレス, 緊張
-        case exercise         // 運動した
-        case bath             // お風呂に入った
-        case highTemp         // 気温が高かった
-        case afterSweat       // 汗をかいた
-        case spicyHotIntake   // 辛いもの・熱いものを飲食した
-        case other            // その他
+        case stressEmotion // 感情の動きがあった
+        case exercise // 運動した
+        case bath // お風呂に入った
+        case highTemp // 気温が高かった
+        case afterSweat // 汗をかいた
+        case spicyHotIntake // 辛いもの・熱いものを飲食した
+        case dontKnow // わからない
+        case other // その他
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .stressEmotion: return "ストレス, 緊張"
+            case .stressEmotion: return "感情の動きがあった"
             case .exercise: return "運動した"
             case .bath: return "お風呂に入った"
             case .highTemp: return "気温が高かった"
             case .afterSweat: return "汗をかいた"
             case .spicyHotIntake: return "辛いもの・熱いものを飲食した"
+            case .dontKnow: return "わからない"
             case .other: return "その他"
             }
         }
@@ -130,7 +134,8 @@ extension ColinLog.Trigger {
         case .highTemp: return "thermometer.sun"
         case .afterSweat: return "drop"
         case .spicyHotIntake: return "flame"
-        case .other: return "questionmark.circle"
+        case .dontKnow: return "questionmark.circle"
+        case .other: return "ellipsis"
         }
     }
 }
@@ -142,6 +147,7 @@ extension ColinLog.ResponseAction {
         case .icePack: return "snowflake"
         case .shower: return "drop.triangle"
         case .coolSpray: return "wind"
+        case .coolPlace: return "fan"
         case .antiItch: return "bandage"
         case .scratched: return "hand.raised"
         case .other: return "ellipsis"
