@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 struct ExportView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: [SortDescriptor(\ColinLog.createdAt, order: .forward)]) private var logs: [ColinLog]
+    @Query(sort: [SortDescriptor(\ColinLog.createdAt, order: .reverse)]) private var logs: [ColinLog]
 
     // 共有 / 書き出し
     @State private var shareItems: [Any] = []
@@ -47,9 +47,9 @@ struct ExportView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("次へ") { showingFormat = true }.disabled(!canExport) } }
             .sheet(isPresented: $showShare) { ActivityView(items: shareItems) }
             .sheet(isPresented: $showingFormat) { formatSheet }
-            .onAppear { setDefaultSelectionIfNeeded() }
-            .onChange(of: logs) { _, _ in setDefaultSelectionIfNeeded() }
-            .onChange(of: outputMode) { _, new in if new == .specific { setDefaultSelectionIfNeeded(forceAll: selectedLogIDs.isEmpty) } }
+            .onAppear { resetSelectionAll() }
+            .onChange(of: logs) { _, _ in resetSelectionAll() }
+            .onChange(of: outputMode) { _, new in if new == .specific { resetSelectionAll() } }
         }
         .tint(.cyan)
     }
@@ -235,206 +235,243 @@ struct ExportView: View {
     private func exportJSON(_ target: [ColinLog]) { struct J: Codable { let createdAt: String; let severity: Int; let response: String; let trigger: String; let sweating: String; let detail: String?; let kind: String }; let iso = ISO8601DateFormatter(); let arr = target.map { J(createdAt: iso.string(from: $0.createdAt), severity: $0.severity.rawValue, response: $0.response.rawValue, trigger: $0.trigger.rawValue, sweating: $0.sweating.rawValue, detail: $0.detail, kind: $0.kind.rawValue) }; do { let data = try JSONEncoder().encode(arr); share(data: data, fileName: exportFileName(ext: "json"), uti: "public.json") } catch { } }
     private func exportPDF(_ target: [ColinLog]) {
 #if canImport(UIKit)
-        // A4 縦 (72dpi 換算)
-        let pageWidth: CGFloat = 595.2
+        // ======= レイアウト設定 =======
+        let pageWidth: CGFloat = 595.2  // A4 72dpi
         let pageHeight: CGFloat = 841.8
         let margin: CGFloat = 40
         let contentWidth = pageWidth - margin * 2
-        let headerBottomSpace: CGFloat = 24
-        let footerHeight: CGFloat = 40
-        let dayHeadingFont = UIFont.boldSystemFont(ofSize: 18)
-        let graphHeight: CGFloat = 140
-        let columnGap: CGFloat = 16
-        let columnWidth = (contentWidth - columnGap) / 2
-        let rowSpacing: CGFloat = 14
-
-        // ---- ログカードメトリクス ----
-        let cardHPad: CGFloat = 12
-        let cardVPad: CGFloat = 10
-        let badgeWidth: CGFloat = 46
-        let badgeCorner: CGFloat = 8
-        let cardCorner: CGFloat = 14
-        let lineGap: CGFloat = 4
+        let headerBottomSpace: CGFloat = 18
+        let footerHeight: CGFloat = 30
+        let graphHeight: CGFloat = 110
+        let columnGap: CGFloat = 12
+        let columnWidth = (contentWidth - columnGap)/2
+        let rowVerticalSpacing: CGFloat = 5
 
         // フォント
-        let timeFont = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        let tagFont = UIFont.systemFont(ofSize: 9)
-        let detailFont = UIFont.systemFont(ofSize: 11)
-        let sevBigFont = UIFont.boldSystemFont(ofSize: 18)
-        let sevSmallFont = UIFont.systemFont(ofSize: 9)
+        let fontTime = UIFont.monospacedSystemFont(ofSize: 9.5, weight: .regular)
+        let fontSmall = UIFont.systemFont(ofSize: 8)
+        let fontBullet = UIFont.systemFont(ofSize: 8)
+        let fontBulletBold = UIFont.boldSystemFont(ofSize: 8)
+        let fontDetail = UIFont.systemFont(ofSize: 8)
+        let fontBadgeMain = UIFont.boldSystemFont(ofSize: 9)
+        let fontBadgeSub = UIFont.systemFont(ofSize: 7)
+        let lineSpacing: CGFloat = 2
+        let bulletSpacing: CGFloat = 1.5
 
-        func sevColor(_ v: Int) -> UIColor {
-            switch v { case 5: return .systemRed; case 4: return .systemOrange; case 3: return .systemYellow; case 2: return .systemGreen; default: return .systemBlue }
+        // バッジ (幅縮小 & 角丸減少)
+        let badgeWidth: CGFloat = 38
+        let badgeHeight: CGFloat = 28
+        let badgeCorner: CGFloat = 6
+        let innerGap: CGFloat = 4
+        let textAreaWidth: CGFloat = columnWidth - badgeWidth - innerGap
+
+        // データグルーピング
+        let cal = Calendar.current
+        let grouped = Dictionary(grouping: target.sorted { $0.createdAt < $1.createdAt }) { cal.startOfDay(for: $0.createdAt) }
+        let orderedDays = grouped.keys.sorted()
+        let generatedDateString = ymd(Date())
+
+        func severityBadgeColor(_ s: ColinLog.Severity) -> UIColor {
+            switch s { case .level1: return .systemBlue; case .level2: return .systemTeal; case .level3: return .systemYellow; case .level4: return .systemOrange; case .level5: return .systemRed }
         }
 
         // 高さ計測
-        func measureCard(_ log: ColinLog, width: CGFloat) -> CGFloat {
-            let textWidth = width - cardHPad*2 - badgeWidth - 8
-            var h: CGFloat = cardVPad
-            h += timeFont.lineHeight
-            h += lineGap
-            let tagLine = log.triggerDescription + "  " + log.responseDescription + "  発汗:" + log.sweating.label + (log.kind == .memo ? "  (メモ)" : "")
-            let tagRect = (tagLine as NSString).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin,.usesFontLeading], attributes: [.font: tagFont], context: nil)
-            h += ceil(tagRect.height)
-            if let d = log.detail, !d.isEmpty {
-                h += lineGap
-                let dRect = (d as NSString).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin,.usesFontLeading], attributes: [.font: detailFont], context: nil)
-                h += ceil(dRect.height)
+        func attrHeight(_ attr: NSAttributedString, width: CGFloat) -> CGFloat {
+            let rect = attr.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin,.usesFontLeading], context: nil)
+            return ceil(rect.height)
+        }
+        func bulletLine(label: String, value: String) -> NSAttributedString {
+            let s = NSMutableAttributedString()
+            s.append(NSAttributedString(string: "- \(label): ", attributes: [.font: fontBullet]))
+            s.append(NSAttributedString(string: value, attributes: [.font: fontBulletBold]))
+            return s
+        }
+        struct MeasuredLog { let log: ColinLog; let timeAttr: NSAttributedString; let bullets: [NSAttributedString]; let detailAttr: NSAttributedString?; let height: CGFloat }
+        func measure(_ log: ColinLog) -> MeasuredLog {
+            let timeAttr = NSAttributedString(string: log.createdAt.colinTimeHHmm, attributes: [.font: fontTime])
+            var bullets: [NSAttributedString] = []
+            if log.kind == .symptom {
+                bullets = [
+                    bulletLine(label: "原因", value: log.triggerDescription),
+                    bulletLine(label: "対策", value: log.responseDescription),
+                    bulletLine(label: "発汗", value: log.sweating.label)
+                ]
             }
-            h += cardVPad
-            return ceil(h)
+            let detailAttr: NSAttributedString? = (log.detail?.isEmpty == false) ? NSAttributedString(string: log.detail!, attributes: [.font: fontDetail]) : nil
+            var h = attrHeight(timeAttr, width: textAreaWidth)
+            if !bullets.isEmpty { h += lineSpacing }
+            for (i,b) in bullets.enumerated() {
+                h += attrHeight(b, width: textAreaWidth)
+                if i < bullets.count - 1 { h += bulletSpacing }
+            }
+            if let d = detailAttr { h += lineSpacing + attrHeight(d, width: textAreaWidth) }
+            h = max(h, badgeHeight) + 4
+            return MeasuredLog(log: log, timeAttr: timeAttr, bullets: bullets, detailAttr: detailAttr, height: h)
         }
 
-        func drawCard(_ log: ColinLog, at origin: CGPoint, width: CGFloat) -> CGFloat {
-            let h = measureCard(log, width: width)
-            let rect = CGRect(x: origin.x, y: origin.y, width: width, height: h)
-            // 背景
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: cardCorner)
-            UIColor.white.setFill(); path.fill()
-            UIColor.black.withAlphaComponent(0.08).setStroke(); path.stroke()
+        func drawRoundedRect(_ rect: CGRect, radius: CGFloat, fill: UIColor) {
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: radius)
+            fill.setFill(); path.fill()
+        }
+
+        func drawLog(_ m: MeasuredLog, at origin: CGPoint, width: CGFloat) {
+            let log = m.log
+            var x = origin.x
+            let yTop = origin.y
             // バッジ
-            let bRect = CGRect(x: rect.minX + cardHPad, y: rect.minY + cardVPad, width: badgeWidth - 14, height: 44)
-            let bPath = UIBezierPath(roundedRect: bRect, cornerRadius: badgeCorner)
-            let sc = sevColor(log.severity.rawValue)
-            sc.withAlphaComponent(0.18).setFill(); bPath.fill()
-            ("Lv" as NSString).draw(at: CGPoint(x: bRect.minX + 6, y: bRect.minY + 4), withAttributes: [.font: sevSmallFont, .foregroundColor: sc])
-            ("\(log.severity.rawValue)" as NSString).draw(at: CGPoint(x: bRect.minX + 4, y: bRect.minY + 18), withAttributes: [.font: sevBigFont, .foregroundColor: sc])
-            // テキスト領域
-            var tx = rect.minX + cardHPad + badgeWidth
-            var ty = rect.minY + cardVPad
-            // 時刻
-            let timeStr: String = { let f = DateFormatter(); f.dateFormat = "MM/dd HH:mm"; return f.string(from: log.createdAt) }()
-            (timeStr as NSString).draw(at: CGPoint(x: tx, y: ty), withAttributes: [.font: timeFont, .foregroundColor: UIColor.label])
-            ty += timeFont.lineHeight + lineGap
-            // タグ
-            let tagLine = log.triggerDescription + "  " + log.responseDescription + "  発汗:" + log.sweating.label + (log.kind == .memo ? "  (メモ)" : "")
-            let tagAttr: [NSAttributedString.Key: Any] = [.font: tagFont, .foregroundColor: UIColor.darkGray]
-            let tagRect = (tagLine as NSString).boundingRect(with: CGSize(width: rect.maxX - cardHPad - tx, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin,.usesFontLeading], attributes: tagAttr, context: nil)
-            (tagLine as NSString).draw(in: CGRect(x: tx, y: ty, width: tagRect.width, height: ceil(tagRect.height)), withAttributes: tagAttr)
-            ty += ceil(tagRect.height)
-            if let d = log.detail, !d.isEmpty {
-                ty += lineGap
-                let dAttr: [NSAttributedString.Key: Any] = [.font: detailFont, .foregroundColor: UIColor.darkGray]
-                let dRect = (d as NSString).boundingRect(with: CGSize(width: rect.maxX - cardHPad - tx, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin,.usesFontLeading], attributes: dAttr, context: nil)
-                (d as NSString).draw(in: CGRect(x: tx, y: ty, width: dRect.width, height: ceil(dRect.height)), withAttributes: dAttr)
+            let badgeRect = CGRect(x: x, y: yTop, width: badgeWidth, height: badgeHeight)
+            let centerPara = NSMutableParagraphStyle(); centerPara.alignment = .center
+            if log.kind == .memo {
+                drawRoundedRect(badgeRect, radius: badgeCorner, fill: .systemGray)
+                let memoAttr: [NSAttributedString.Key: Any] = [.font: fontBadgeMain, .foregroundColor: UIColor.white, .paragraphStyle: centerPara]
+                ("メモ" as NSString).draw(in: CGRect(x: badgeRect.minX, y: badgeRect.minY + (badgeHeight - 12)/2, width: badgeRect.width, height: 14), withAttributes: memoAttr)
+            } else {
+                let color = severityBadgeColor(log.severity)
+                drawRoundedRect(badgeRect, radius: badgeCorner, fill: color)
+                let textColor: UIColor = (log.severity == .level3) ? .black : .white
+                let numAttr: [NSAttributedString.Key: Any] = [.font: fontBadgeMain, .foregroundColor: textColor, .paragraphStyle: centerPara]
+                let labelAttr: [NSAttributedString.Key: Any] = [.font: fontBadgeSub, .foregroundColor: textColor, .paragraphStyle: centerPara]
+                ("\(log.severity.rawValue)" as NSString).draw(in: CGRect(x: badgeRect.minX, y: badgeRect.minY + 4, width: badgeRect.width, height: 12), withAttributes: numAttr)
+                (log.severity.label as NSString).draw(in: CGRect(x: badgeRect.minX, y: badgeRect.minY + 16, width: badgeRect.width, height: 10), withAttributes: labelAttr)
             }
-            return h
+            // テキスト部
+            x += badgeWidth + innerGap
+            let textWidth = width - badgeWidth - innerGap
+            var cursorY = yTop
+            m.timeAttr.draw(with: CGRect(x: x, y: cursorY, width: textWidth, height: 40), options: [.usesLineFragmentOrigin,.usesFontLeading], context: nil)
+            cursorY += attrHeight(m.timeAttr, width: textWidth)
+            if !m.bullets.isEmpty { cursorY += lineSpacing }
+            for (i,b) in m.bullets.enumerated() {
+                b.draw(with: CGRect(x: x, y: cursorY, width: textWidth, height: 200), options: [.usesLineFragmentOrigin,.usesFontLeading], context: nil)
+                cursorY += attrHeight(b, width: textWidth) + (i < m.bullets.count - 1 ? bulletSpacing : 0)
+            }
+            if let d = m.detailAttr { cursorY += lineSpacing; d.draw(with: CGRect(x: x, y: cursorY, width: textWidth, height: 1000), options: [.usesLineFragmentOrigin,.usesFontLeading], context: nil) }
         }
 
-        // グラフ色
-        let graphBorder = UIColor(white: 0.85, alpha: 1)
-        let gridColor = UIColor(white: 0.9, alpha: 1)
-
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: target.sorted { $0.createdAt < $1.createdAt }) { calendar.startOfDay(for: $0.createdAt) }
-        let orderedDays = grouped.keys.sorted()
-        let todayStr = ymd(Date())
+        func drawGraph(for day: Date, logs: [ColinLog], in ctx: UIGraphicsPDFRendererContext, y: inout CGFloat) {
+            let rect = CGRect(x: margin, y: y, width: contentWidth, height: graphHeight)
+            let bg = UIBezierPath(roundedRect: rect, cornerRadius: 9)
+            UIColor(white:0.97, alpha:1).setFill(); bg.fill()
+            UIColor(white:0.85, alpha:1).setStroke(); bg.lineWidth = 1; bg.stroke()
+            let g = UIGraphicsGetCurrentContext()!
+            // タイトル用上部余白 (レベル5ラベルとの衝突回避)
+            let topTitlePadding: CGFloat = 16 // タイトル領域
+            // グラフ有効高さ (下側マージン20を既存計算と合わせつつ上部を追加オフセット)
+            let effectiveHeight = rect.height - 20 - topTitlePadding
+            g.setStrokeColor(UIColor(white:0.9, alpha:1).cgColor); g.setLineWidth(0.4)
+            for i in 0...5 {
+                let ly = rect.minY + 6 + topTitlePadding + CGFloat(i) * (effectiveHeight / 5)
+                g.move(to: CGPoint(x: rect.minX + 38, y: ly))
+                g.addLine(to: CGPoint(x: rect.maxX - 6, y: ly))
+            }
+            g.strokePath()
+            for i in 1...5 {
+                let s = "\(i)" as NSString
+                s.draw(at: CGPoint(
+                    x: rect.minX + 22 - s.size(withAttributes: [.font: fontSmall]).width/2,
+                    y: rect.maxY - 14 - CGFloat(i)*(effectiveHeight)/5 - 4
+                ), withAttributes: [.font: fontSmall, .foregroundColor: UIColor.darkGray])
+            }
+            let times = [0,6,12,18,24]
+            for t in times {
+                let lbl = String(format: "%02d:00", t) as NSString
+                let attr:[NSAttributedString.Key:Any] = [.font: UIFont.systemFont(ofSize:6.5), .foregroundColor:UIColor.darkGray]
+                let xPos = rect.minX + 38 + CGFloat(t)/24*(rect.width - 50)
+                lbl.draw(at: CGPoint(x: xPos - lbl.size(withAttributes: attr).width/2, y: rect.maxY - 12), withAttributes: attr)
+            }
+            for lg in logs where lg.kind == .symptom {
+                let secs = cal.component(.hour, from: lg.createdAt)*3600 + cal.component(.minute, from: lg.createdAt)*60 + cal.component(.second, from: lg.createdAt)
+                let ratio = CGFloat(secs)/86400
+                let barX = rect.minX + 38 + ratio*(rect.width - 50)
+                let barMaxH = effectiveHeight - 6 // 余白微調整
+                let barH = barMaxH * CGFloat(lg.severity.rawValue)/5
+                let barRect = CGRect(x: barX - 2.4, y: rect.maxY - 14 - barH, width: 4.8, height: barH)
+                severityUIColor(for: lg.severity.rawValue).setFill(); UIBezierPath(roundedRect: barRect, cornerRadius: 1.8).fill()
+            }
+            // タイトルは余白内上部へ
+            ("症状レベル推移" as NSString).draw(at: CGPoint(x: rect.minX + 8, y: rect.minY + 4), withAttributes: [.font:UIFont.systemFont(ofSize:9), .foregroundColor:UIColor.darkGray])
+            y += graphHeight
+        }
 
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
         let data = renderer.pdfData { ctx in
-            var page = 0
+            var pageNumber = 0
             var y: CGFloat = 0
-
             func header() {
-                page += 1
-                ctx.beginPage()
-                y = margin
-                if let icon = appIconImage(size: 48), let cg = icon.cgImage { UIGraphicsGetCurrentContext()?.draw(cg, in: CGRect(x: margin, y: y, width: 48, height: 48)) }
-                let titleX = margin + 56
-                let title = "コリン性蕁麻疹 症状レポート (生成日: \(todayStr))"
-                (title as NSString).draw(at: CGPoint(x: titleX, y: y + 4), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 18)])
-                ("ユーザー名" as NSString).draw(at: CGPoint(x: titleX, y: y + 30), withAttributes: [.font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.darkGray])
-                y += 56
-                let g = UIGraphicsGetCurrentContext()!
-                g.setStrokeColor(UIColor.black.cgColor)
-                g.setLineWidth(1)
-                g.move(to: CGPoint(x: margin, y: y))
-                g.addLine(to: CGPoint(x: pageWidth - margin, y: y))
-                g.strokePath()
-                y += headerBottomSpace
+                pageNumber += 1; ctx.beginPage(); y = margin
+                if let icon = appIconImage(size: 42) { icon.draw(in: CGRect(x: margin, y: y, width: 42, height: 42)) }
+                let titleX = margin + 52
+                let title = "コリン性蕁麻疹 症状レポート (生成日: \(generatedDateString))" as NSString
+                title.draw(at: CGPoint(x: titleX, y: y + 2), withAttributes: [.font:UIFont.boldSystemFont(ofSize:14)])
+                ("ユーザー名" as NSString).draw(at: CGPoint(x: titleX, y: y + 24), withAttributes: [.font:UIFont.systemFont(ofSize:10), .foregroundColor:UIColor.darkGray])
+                y += 48
+                let g = UIGraphicsGetCurrentContext()!; g.setStrokeColor(UIColor.black.cgColor); g.setLineWidth(0.5); g.move(to: CGPoint(x: margin, y: y)); g.addLine(to: CGPoint(x: pageWidth - margin, y: y)); g.strokePath(); y += headerBottomSpace
             }
             func footer() {
-                let g = UIGraphicsGetCurrentContext()!
-                g.setStrokeColor(UIColor.black.cgColor)
-                g.setLineWidth(1)
-                g.move(to: CGPoint(x: margin, y: pageHeight - footerHeight))
-                g.addLine(to: CGPoint(x: pageWidth - margin, y: pageHeight - footerHeight))
-                g.strokePath()
-                ("Generated By コリンログ" as NSString).draw(at: CGPoint(x: margin, y: pageHeight - footerHeight + 14), withAttributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.darkGray])
-                let right = "p.\(page)" as NSString
-                let rSize = right.size(withAttributes: [.font: UIFont.systemFont(ofSize: 10)])
-                right.draw(at: CGPoint(x: pageWidth - margin - rSize.width, y: pageHeight - footerHeight + 14), withAttributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.darkGray])
+                let g = UIGraphicsGetCurrentContext()!; g.setStrokeColor(UIColor.black.cgColor); g.setLineWidth(0.5); g.move(to: CGPoint(x: margin, y: pageHeight - footerHeight)); g.addLine(to: CGPoint(x: pageWidth - margin, y: pageHeight - footerHeight)); g.strokePath()
+                ("Generated By コリンログ" as NSString).draw(at: CGPoint(x: margin, y: pageHeight - footerHeight + 8), withAttributes: [.font:UIFont.systemFont(ofSize:8), .foregroundColor:UIColor.darkGray])
+                let p = "p.\(pageNumber)" as NSString; let attr:[NSAttributedString.Key:Any] = [.font:UIFont.systemFont(ofSize:8), .foregroundColor:UIColor.darkGray]; let s = p.size(withAttributes: attr); p.draw(at: CGPoint(x: pageWidth - margin - s.width, y: pageHeight - footerHeight + 8), withAttributes: attr)
             }
-            func ensureSpace(_ needed: CGFloat) { if y + needed + footerHeight + 10 > pageHeight { footer(); header() } }
-
-            func drawGraph(_ logs: [ColinLog], originY: inout CGFloat) {
-                let rect = CGRect(x: margin, y: originY, width: contentWidth, height: graphHeight)
-                let rPath = UIBezierPath(roundedRect: rect, cornerRadius: 14)
-                UIColor(white: 0.97, alpha: 1).setFill(); rPath.fill()
-                graphBorder.setStroke(); rPath.stroke()
-                let g = UIGraphicsGetCurrentContext()!
-                g.setStrokeColor(gridColor.cgColor); g.setLineWidth(0.8)
-                for i in 0...5 {
-                    let ly = rect.minY + CGFloat(i) * (rect.height - 20) / 5 + 10
-                    g.move(to: CGPoint(x: rect.minX + 50, y: ly))
-                    g.addLine(to: CGPoint(x: rect.maxX - 10, y: ly))
-                }
-                g.strokePath()
-                for i in 1...5 {
-                    let label = "\(i)" as NSString
-                    let sz = label.size(withAttributes: [.font: UIFont.systemFont(ofSize: 10)])
-                    let ly = rect.maxY - 10 - CGFloat(i) * (rect.height - 20) / 5 - sz.height/2
-                    label.draw(at: CGPoint(x: rect.minX + 32 - sz.width/2, y: ly), withAttributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.darkGray])
-                }
-                let times = [0,6,12,18,24]
-                for t in times {
-                    let s = String(format: "%02d:00", t) as NSString
-                    let attr: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 9), .foregroundColor: UIColor.darkGray]
-                    let x = rect.minX + 50 + CGFloat(t)/24.0 * (rect.width - 60)
-                    let w = s.size(withAttributes: attr).width
-                    s.draw(at: CGPoint(x: x - w/2, y: rect.maxY - 14), withAttributes: attr)
-                }
-                for log in logs {
-                    let seconds = calendar.component(.hour, from: log.createdAt)*3600 + calendar.component(.minute, from: log.createdAt)*60 + calendar.component(.second, from: log.createdAt)
-                    let ratio = CGFloat(seconds) / 86400.0
-                    let barX = rect.minX + 50 + ratio * (rect.width - 60)
-                    let barWidth: CGFloat = 6
-                    let barMaxHeight = rect.height - 30
-                    let barHeight = barMaxHeight * CGFloat(log.severity.rawValue) / 5.0
-                    let barRect = CGRect(x: barX - barWidth/2, y: rect.maxY - 20 - barHeight, width: barWidth, height: barHeight)
-                    sevColor(log.severity.rawValue).setFill(); UIBezierPath(roundedRect: barRect, cornerRadius: 2).fill()
-                }
-                ("症状レベル推移" as NSString).draw(at: CGPoint(x: rect.minX + 12, y: rect.minY + 8), withAttributes: [.font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.darkGray])
-                (todayStr as NSString).draw(at: CGPoint(x: rect.maxX - 60, y: rect.minY + 8), withAttributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.darkGray])
-                originY += graphHeight
-            }
+            func ensureSpace(_ needed: CGFloat) { if y + needed + footerHeight + 4 > pageHeight { footer(); header() } }
 
             header()
             for day in orderedDays {
                 guard let dayLogs = grouped[day] else { continue }
-                // 高さ見積り
-                let est = 32 + graphHeight + CGFloat((dayLogs.count + 1)/2) * 130
-                ensureSpace(est)
                 let df = DateFormatter(); df.locale = Locale(identifier: "ja_JP"); df.dateFormat = "yyyy/MM/dd (E)"
-                (df.string(from: day) as NSString).draw(at: CGPoint(x: margin, y: y), withAttributes: [.font: dayHeadingFont])
-                y += 32
-                drawGraph(dayLogs, originY: &y)
-                y += 16
-                // 2列配置 (行単位で高さ揃える)
-                var idx = 0
-                while idx < dayLogs.count {
-                    let logA = dayLogs[idx]
-                    let logB = (idx + 1 < dayLogs.count) ? dayLogs[idx+1] : nil
-                    let hA = measureCard(logA, width: columnWidth)
-                    let hB = logB.map { measureCard($0, width: columnWidth) } ?? 0
-                    let rowH = max(hA, hB)
-                    ensureSpace(rowH + rowSpacing)
-                    _ = drawCard(logA, at: CGPoint(x: margin, y: y), width: columnWidth)
-                    if let logB { _ = drawCard(logB, at: CGPoint(x: margin + columnWidth + columnGap, y: y), width: columnWidth) }
-                    y += rowH + rowSpacing
-                    idx += 2
+                let heading = df.string(from: day) as NSString
+                ensureSpace(24)
+                heading.draw(at: CGPoint(x: margin, y: y), withAttributes: [.font:UIFont.boldSystemFont(ofSize:12.5)])
+                y += 20
+                ensureSpace(graphHeight + 6)
+                drawGraph(for: day, logs: dayLogs, in: ctx, y: &y)
+                y += 6
+                // ---- 2カラム縦流し (左→右) ----
+                let measured = dayLogs.map { measure($0) }
+                var leftY = y
+                var rightY = y
+                let usableBottom = pageHeight - footerHeight - 4
+                var usedRightColumn = false
+                func newPageForContinuation(includeGraph: Bool) {
+                    footer(); header()
+                    // 日付見出し(続き)
+                    let contHeading = heading
+                    contHeading.draw(at: CGPoint(x: margin, y: y), withAttributes: [.font:UIFont.boldSystemFont(ofSize:12.5)])
+                    y += 20
+                    leftY = y; rightY = y; usedRightColumn = false
                 }
-                y += 4
+                for m in measured {
+                    // 現在の描画ターゲット列を選ぶ (左優先)
+                    var targetIsLeft = !usedRightColumn
+                    // フィット判定
+                    func fitsLeft() -> Bool { leftY + m.height <= usableBottom }
+                    func fitsRight() -> Bool { rightY + m.height <= usableBottom }
+                    if targetIsLeft {
+                        if !fitsLeft() { // 左に入らない→右へ移動
+                            usedRightColumn = true
+                            targetIsLeft = false
+                            if !fitsRight() { // 右にも入らない→改ページ
+                                newPageForContinuation(includeGraph: false)
+                                targetIsLeft = true
+                            }
+                        }
+                    } else { // 右列利用中
+                        if !fitsRight() { // 右が溢れる→新ページ
+                            newPageForContinuation(includeGraph: false)
+                            targetIsLeft = true
+                        }
+                    }
+                    // 描画
+                    if targetIsLeft {
+                        drawLog(m, at: CGPoint(x: margin, y: leftY), width: columnWidth)
+                        leftY += m.height + rowVerticalSpacing
+                    } else {
+                        drawLog(m, at: CGPoint(x: margin + columnWidth + columnGap, y: rightY), width: columnWidth)
+                        rightY += m.height + rowVerticalSpacing
+                    }
+                    if !usedRightColumn && !targetIsLeft { usedRightColumn = true }
+                }
+                // 日セクション終了後の y を最大列位置に更新
+                y = max(leftY, rightY) + 2
             }
             footer()
         }
@@ -447,10 +484,7 @@ struct ExportView: View {
     private func formattedLine(for log: ColinLog, markdown: Bool) -> String { let date = log.createdAt.colinISODate + " " + log.createdAt.colinTimeHHmm; let base = "[\(date)] Lv\(log.severity.rawValue) 発汗:\(log.sweating.label) 原因:\(log.triggerDescription) 対応:\(log.responseDescription)"; let detail = log.detail?.replacingOccurrences(of: "\n", with: markdown ? "<br>" : " "); let kind = log.kind == .memo ? " (メモ)" : ""; return base + (detail.map { " 詳細: \($0)" } ?? "") + kind }
     private func share(text: String, fileName: String) { if let data = text.data(using: .utf8) { share(data: data, fileName: fileName, uti: "public.plain-text") } }
     private func share(data: Data, fileName: String, uti: String) { let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName); do { try data.write(to: url, options: .atomic) } catch { return }; shareItems = [url]; showShare = true }
-    private func setDefaultSelectionIfNeeded(forceAll: Bool = false) {
-        guard outputMode == .specific else { return }
-        if forceAll || selectedLogIDs.isEmpty { selectedLogIDs = Set(logs.map { $0.id }) }
-    }
+    private func resetSelectionAll() { selectedLogIDs = Set(logs.map { $0.id }) }
     private func ymd(_ d: Date) -> String {
         let cal = Calendar(identifier: .gregorian)
         let c = cal.dateComponents([.year,.month,.day], from: d)
@@ -498,6 +532,18 @@ private func appIconImage(size: CGFloat) -> UIImage? {
     return renderer.image { ctx in
         ctx.cgContext.interpolationQuality = .high
         original.draw(in: CGRect(x: 0, y: 0, width: size, height: size))
+    }
+}
+#endif
+
+#if canImport(UIKit)
+private func severityUIColor(for level: Int) -> UIColor {
+    switch level {
+    case 1: return UIColor.systemBlue
+    case 2: return UIColor.systemTeal
+    case 3: return UIColor.systemYellow
+    case 4: return UIColor.systemOrange
+    default: return UIColor.systemRed
     }
 }
 #endif
