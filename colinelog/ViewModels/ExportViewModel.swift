@@ -62,14 +62,11 @@ final class ExportViewModel: ObservableObject {
             var base = logs
             if periodMode == .range {
                 let cal = Calendar.current
+                // 開始日は startOfDay を使い、終了は翌日の startOfDay を排他的上限とする
                 let startDay = cal.startOfDay(for: startDate)
-                let endDay = cal.date(
-                    bySettingHour: 23,
-                    minute: 59,
-                    second: 59,
-                    of: endDate
-                ) ?? endDate
-                base = base.filter { $0.createdAt >= startDay && $0.createdAt <= endDay }
+                let endDayStart = cal.startOfDay(for: endDate)
+                let endExclusive = cal.date(byAdding: .day, value: 1, to: endDayStart) ?? endDayStart.addingTimeInterval(24*60*60)
+                base = base.filter { $0.createdAt >= startDay && $0.createdAt < endExclusive }
             }
             return base.filter {
                 (includeSymptom && $0.kind == .symptom) || (includeMemo && $0.kind == .memo)

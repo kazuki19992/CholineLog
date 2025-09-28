@@ -10,6 +10,10 @@ struct EditColinLogView: View {
 
     @Bindable var log: ColinLog
 
+    // 保存エラーを表示するための状態
+    @State private var saveError: Error? = nil
+    @State private var showingSaveError: Bool = false
+
     // ローカルドラフト (ビュー内で編集する一時コピー)
     private struct Draft {
         var createdAt: Date
@@ -94,6 +98,10 @@ struct EditColinLogView: View {
             }
             previousKind = newKind
         }
+        // 保存失敗時に表示するアラート
+        .alert("保存に失敗しました", isPresented: $showingSaveError, actions: {
+            Button("OK", role: .cancel) { }
+        }, message: { Text(saveError?.localizedDescription ?? "不明なエラーが発生しました") })
     }
 
     // MARK: Sections
@@ -169,7 +177,16 @@ struct EditColinLogView: View {
         let trimmedDetail = draft.detail.trimmingCharacters(in: .whitespacesAndNewlines)
         log.detail = trimmedDetail.isEmpty ? nil : trimmedDetail
 
-        dismiss()
+        // モデルコンテキストを保存して永続化
+        do {
+            try modelContext.save()
+            dismiss()
+        } catch {
+            // 保存失敗をログ出力し、ユーザーに通知
+            print("ModelContext.save() failed: \(error)")
+            saveError = error
+            showingSaveError = true
+        }
     }
 
     private func syncStateFromModel() {

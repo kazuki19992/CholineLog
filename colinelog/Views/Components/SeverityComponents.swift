@@ -6,7 +6,10 @@ struct SeverityTimeChart: View {
     let logs: [ColinLog]
     let baseDate: Date
     private var anchorStart: Date { Calendar.current.startOfDay(for: baseDate) }
-    private var anchorEnd: Date { Calendar.current.date(byAdding: .hour, value: 24, to: anchorStart)! }
+    private var anchorEnd: Date {
+        let cal = Calendar.current
+        return cal.date(byAdding: .day, value: 1, to: anchorStart) ?? anchorStart.addingTimeInterval(24*60*60)
+    }
     private struct PlotPoint: Identifiable { let id = UUID(); let time: Date; let severity: Int; let original: ColinLog }
     private var points: [PlotPoint] {
         let cal = Calendar.current
@@ -42,15 +45,14 @@ struct SeverityTimeChart: View {
                 }
                 .chartXScale(domain: anchorStart...anchorEnd)
                 .chartYScale(domain: 0...5) // 0 起点でバーの高さが直感的
-                .chartYAxis { AxisMarks(values: [0,1,2,3,4,5]) }
-                .chartXAxis {
-                    let hours = stride(from: 0, through: 24, by: 6).map { Calendar.current.date(byAdding: .hour, value: $0, to: anchorStart)! }
-                    AxisMarks(values: hours) { value in
+                .chartYAxis(content: { AxisMarks(values: [0,1,2,3,4,5]) })
+                .chartXAxis(content: {
+                    AxisMarks(values: xAxisTicks, content: { value in
                         AxisGridLine().foregroundStyle(.secondary.opacity(0.12))
                         AxisTick()
                         if let date = value.as(Date.self) { AxisValueLabel { Text(hourFormatter.string(from: date)) } }
-                    }
-                }
+                    })
+                 })
                 .frame(maxWidth: .infinity)
             }
         }
@@ -75,6 +77,20 @@ struct SeverityTimeChart: View {
         return LinearGradient(colors: colors, startPoint: .bottom, endPoint: .top)
     }
     private var hourFormatter: DateFormatter { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f }
+    // X軸の目盛（計算はビルダー外で行う）
+    private var xAxisTicks: [Date] {
+        let cal = Calendar.current
+        var ticks: [Date] = []
+        var current = anchorStart
+        let step = 6 // hours
+        while current < anchorEnd {
+            ticks.append(current)
+            guard let next = cal.date(byAdding: .hour, value: step, to: current) else { break }
+            current = next
+        }
+        ticks.append(anchorEnd)
+        return ticks
+    }
 }
 
 // レベルバッジ

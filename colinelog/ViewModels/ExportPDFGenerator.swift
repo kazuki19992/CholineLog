@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 
 struct ExportPDFGenerator {
+    @MainActor
     static func generate(logs: [ColinLog], userName: String = "") -> Data? {
         guard #available(iOS 16.0, *) else { return nil }
         let sorted = logs.sorted { $0.createdAt < $1.createdAt }

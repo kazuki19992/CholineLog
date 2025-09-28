@@ -30,7 +30,16 @@ struct LogsView: View {
 
     private var filteredLogs: [ColinLog] { vm.filtered(logs) }
 
-    private func deleteLogs(offsets: IndexSet) { withAnimation { offsets.forEach { modelContext.delete(filteredLogs[$0]) } } }
+    private func deleteLogs(offsets: IndexSet) {
+        // filteredLogs を再評価するとインデックスがずれるためスナップショットを先に作る
+        let snapshot = Array(filteredLogs)
+        let itemsToDelete = offsets.map { snapshot[$0] }
+        withAnimation {
+            for item in itemsToDelete {
+                modelContext.delete(item)
+            }
+        }
+    }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
