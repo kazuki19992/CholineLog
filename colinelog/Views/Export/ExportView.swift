@@ -95,8 +95,10 @@ struct ExportView: View {
                 }
                 .pickerStyle(.segmented)
                 if vm.periodMode == .range {
-                    DatePicker("開始", selection: $vm.startDate, displayedComponents: .date)
+                    DatePicker("開始", selection: $vm.startDate, displayedComponents: .date, )
+                        .environment(\.locale, Locale(identifier: "ja_JP"))
                     DatePicker("終了", selection: $vm.endDate, displayedComponents: .date)
+                        .environment(\.locale, Locale(identifier: "ja_JP"))
                     if vm.startDate > vm.endDate { Text("開始日は終了日以前にしてください").font(.caption2).foregroundStyle(.red) }
                 }
             }

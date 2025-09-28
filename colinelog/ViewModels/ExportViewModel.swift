@@ -17,13 +17,13 @@ final class ExportViewModel: ObservableObject {
         case specific
         case filtered
         var id: String { rawValue }
-        var label: String { self == .specific ? "特定のログ" : "期間と種類" }
+        var label: String { self == .specific ? "ログをえらぶ" : "期間と種類で絞り込む" }
     }
     enum PeriodMode: String, CaseIterable, Identifiable {
         case all
         case range
         var id: String { rawValue }
-        var label: String { self == .all ? "すべて" : "期間指定" }
+        var label: String { self == .all ? "対象のすべて" : "期間を指定する" }
     }
 
     // MARK: Published UI State

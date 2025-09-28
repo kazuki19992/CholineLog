@@ -16,9 +16,7 @@ struct SettingsView: View {
                     Label("設定 (準備中)", systemImage: "gear")
                 }
                 Section("データ") {
-                    Button {
-                        showImporter = true
-                    } label: {
+                    Button { showImporter = true } label: {
                         Label("JSONインポート", systemImage: "square.and.arrow.down")
                     }
                     .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { handleImport($0) }
@@ -34,33 +32,74 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Import
     private func handleImport(_ result: Result<URL, Error>) {
         switch result {
         case .failure(let err):
             importError = "読み込み失敗: \(err.localizedDescription)"
         case .success(let url):
-            do {
-                let data = try Data(contentsOf: url)
-                struct J: Codable { let createdAt: String; let severity: Int; let response: String; let trigger: String; let sweating: String; let detail: String?; let kind: String }
-                let arr = try JSONDecoder().decode([J].self, from: data)
-                let iso = ISO8601DateFormatter()
-                var count = 0
-                for item in arr {
-                    guard let date = iso.date(from: item.createdAt),
-                          let severity = ColinLog.Severity(rawValue: item.severity),
-                          let response = ColinLog.ResponseAction(rawValue: item.response),
-                          let trigger = ColinLog.Trigger(rawValue: item.trigger),
-                          let sweating = ColinLog.SweatingLevel(rawValue: item.sweating),
-                          let kind = ColinLog.Kind(rawValue: item.kind) else { continue }
-                    let log = ColinLog(createdAt: date, severity: severity, response: response, trigger: trigger, sweating: sweating, detail: item.detail, kind: kind)
-                    modelContext.insert(log)
-                    count += 1
-                }
-                try modelContext.save()
-                importSuccessCount = count
-            } catch {
-                importError = "JSON解析失敗: \(error.localizedDescription)"
+            importJSON(from: url)
+        }
+    }
+
+    private struct ImportRow: Codable {
+        let createdAt: String
+        let severity: Int
+        let response: String
+        let trigger: String
+        let sweating: String
+        let detail: String?
+        let kind: String
+    }
+
+    private func importJSON(from url: URL) {
+        // security-scoped resource 対応
+        let needsAccess = url.startAccessingSecurityScopedResource()
+        defer { if needsAccess { url.stopAccessingSecurityScopedResource() } }
+
+        // iCloud 未ダウンロードの場合のダウンロード試行
+        if FileManager.default.isUbiquitousItem(at: url) {
+            _ = try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
+
+        // FileCoordinator で読み込み (エラー詳細取得)
+        var readError: NSError?
+        var data: Data?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &readError) { safeURL in
+            data = try? Data(contentsOf: safeURL)
+        }
+        if let readError { importError = "読み込み権限エラー: \(readError.localizedDescription)"; return }
+        guard let data else { importError = "データ取得失敗"; return }
+
+        // JSON Decode (ISO8601 + フォールバック)
+        let decoder = JSONDecoder()
+        do {
+            let rows = try decoder.decode([ImportRow].self, from: data)
+            let iso = ISO8601DateFormatter()
+            var success = 0
+            for r in rows {
+                guard let date = iso.date(from: r.createdAt),
+                      let severity = ColinLog.Severity(rawValue: r.severity),
+                      let response = ColinLog.ResponseAction(rawValue: r.response),
+                      let trigger = ColinLog.Trigger(rawValue: r.trigger),
+                      let sweating = ColinLog.SweatingLevel(rawValue: r.sweating),
+                      let kind = ColinLog.Kind(rawValue: r.kind) else { continue }
+                let log = ColinLog(
+                    createdAt: date,
+                    severity: severity,
+                    response: response,
+                    trigger: trigger,
+                    sweating: sweating,
+                    detail: r.detail,
+                    kind: kind
+                )
+                modelContext.insert(log)
+                success += 1
             }
+            try modelContext.save()
+            importSuccessCount = success
+        } catch {
+            importError = "JSON解析失敗: \(error.localizedDescription)"
         }
     }
 }
