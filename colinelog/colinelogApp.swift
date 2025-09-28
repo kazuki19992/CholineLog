@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct colinelogApp: App {
+struct ColinelogApp: App {
     init() {
 #if canImport(UIKit)
         let nav = UINavigationBarAppearance()

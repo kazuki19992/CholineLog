@@ -10,35 +10,49 @@ struct EditColinLogView: View {
 
     @Bindable var log: ColinLog
 
-    // 編集用一時フィールド (その他テキストは nil / 空 正規化)
-    @State private var responseOther: String = ""
-    @State private var triggerOther: String = ""
+    // ローカルドラフト (ビュー内で編集する一時コピー)
+    private struct Draft {
+        var createdAt: Date
+        var severity: ColinLog.Severity
+        var response: ColinLog.ResponseAction
+        var responseOther: String
+        var trigger: ColinLog.Trigger
+        var triggerOther: String
+        var sweating: ColinLog.SweatingLevel
+        var detail: String
+        var kind: ColinLog.Kind
+    }
 
-    @State private var date: Date = Date()
-
+    @State private var draft: Draft
     @State private var previousKind: ColinLog.Kind
 
-    // 初期化で現在値を State にコピー
+    // 初期化でモデルからドラフトへコピー
     init(log: ColinLog) {
         self.log = log
-        _date = State(initialValue: log.createdAt)
-        _responseOther = State(initialValue: log.responseOtherNote ?? "")
-        _triggerOther = State(initialValue: log.triggerOtherNote ?? "")
-        _previousKind = State(initialValue: log.kind)
+        let initial = Draft(
+            createdAt: log.createdAt,
+            severity: log.severity,
+            response: log.response,
+            responseOther: log.responseOtherNote ?? "",
+            trigger: log.trigger,
+            triggerOther: log.triggerOtherNote ?? "",
+            sweating: log.sweating,
+            detail: log.detail ?? "",
+            kind: log.kind
+        )
+        _draft = State(initialValue: initial)
+        _previousKind = State(initialValue: initial.kind)
     }
 
     private var canSave: Bool {
-        if log.kind == .memo { return true }
-        if log.response == .other && responseOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
-        if log.trigger == .other && triggerOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+        if draft.kind == .memo { return true }
+        if draft.response == .other && draft.responseOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+        if draft.trigger == .other && draft.triggerOther.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         return true
     }
 
     private var kindBinding: Binding<ColinLog.Kind> {
-        Binding<ColinLog.Kind>(
-            get: { log.kind },
-            set: { newVal in log.kind = newVal }
-        )
+        Binding(get: { draft.kind }, set: { draft.kind = $0 })
     }
 
     var body: some View {
@@ -46,13 +60,13 @@ struct EditColinLogView: View {
             Form {
                 kindSection
                 dateSection
-                if log.kind == .symptom {
-                    Section("強さ") { SeveritySelectorEdit(selected: $log.severity) }
+                if draft.kind == .symptom {
+                    Section("強さ") { SeveritySelectorEdit(selected: Binding(get: { draft.severity }, set: { draft.severity = $0 })) }
                     Section("対応") { responseSection }
                     Section("メインの発症原因") { triggerSection }
                     Section("発汗") { sweatingSection }
                 }
-                Section(log.kind == .symptom ? "詳細" : "メモ") { detailSection }
+                Section(draft.kind == .symptom ? "詳細" : "メモ") { detailSection }
             }
             .navigationTitle("編集")
             .toolbarTitleDisplayMode(.inline)
@@ -62,23 +76,21 @@ struct EditColinLogView: View {
             }
         }
         .onAppear { syncStateFromModel() }
-        .onChange(of: log.kind) { _ in
-            let newKind = log.kind
+        .onChange(of: draft.kind) { _ in
+            let newKind = draft.kind
             guard newKind != previousKind else { return }
             if newKind == .memo {
-                log.response = .none
-                log.responseOtherNote = nil
-                responseOther = ""
-                log.trigger = .stressEmotion
-                log.triggerOtherNote = nil
-                triggerOther = ""
-                log.sweating = .none
-                log.severity = .level1
+                draft.response = .none
+                draft.responseOther = ""
+                draft.trigger = .stressEmotion
+                draft.triggerOther = ""
+                draft.sweating = .none
+                draft.severity = .level1
             } else {
-                log.severity = .level1
-                log.response = .none
-                log.trigger = .stressEmotion
-                log.sweating = .none
+                draft.severity = .level1
+                draft.response = .none
+                draft.trigger = .stressEmotion
+                draft.sweating = .none
             }
             previousKind = newKind
         }
@@ -97,12 +109,12 @@ struct EditColinLogView: View {
     private var dateSection: some View {
         Section("日時") {
             ZStack(alignment: .leading) {
-                DatePicker("日時", selection: $date, displayedComponents: [.date, .hourAndMinute])
+                DatePicker("日時", selection: Binding(get: { draft.createdAt }, set: { draft.createdAt = $0 }), displayedComponents: [.date, .hourAndMinute])
                     .labelsHidden()
                     .opacity(0.02)
                 HStack(spacing: 12) {
-                    badge(text: date.colinISODate)
-                    badge(text: date.colinTimeHHmm)
+                    badge(text: draft.createdAt.colinISODate)
+                    badge(text: draft.createdAt.colinTimeHHmm)
                     Spacer()
                 }.allowsHitTesting(false)
             }
@@ -119,50 +131,61 @@ struct EditColinLogView: View {
 
     private var responseSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ResponseMenu(selection: $log.response)
-            if log.response == .other { TextField("その他の内容", text: $responseOther) }
+            ResponseMenu(selection: Binding(get: { draft.response }, set: { draft.response = $0 }))
+            if draft.response == .other { TextField("その他の内容", text: Binding(get: { draft.responseOther }, set: { draft.responseOther = $0 })) }
         }
     }
 
     private var triggerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TriggerMenu(selection: $log.trigger)
-            if log.trigger == .other { TextField("その他のトリガー", text: $triggerOther) }
+            TriggerMenu(selection: Binding(get: { draft.trigger }, set: { draft.trigger = $0 }))
+            if draft.trigger == .other { TextField("その他のトリガー", text: Binding(get: { draft.triggerOther }, set: { draft.triggerOther = $0 })) }
         }
     }
 
     private var sweatingSection: some View {
-        Picker("発汗", selection: $log.sweating) {
+        Picker("発汗", selection: Binding(get: { draft.sweating }, set: { draft.sweating = $0 })) {
             ForEach(ColinLog.SweatingLevel.allCases) { s in Text(s.label).tag(s) }
         }
         .pickerStyle(.segmented)
     }
 
     private var detailSection: some View {
-        TextEditor(text: Binding(
-            get: { log.detail ?? "" },
-            set: { log.detail = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        ))
+        TextEditor(text: Binding(get: { draft.detail }, set: { draft.detail = $0 }))
         .frame(minHeight: 120)
     }
 
     // MARK: Save
     private func applyAndDismiss() {
-        log.createdAt = date
-        if log.kind == .symptom {
-            log.responseOtherNote = log.response == .other ? responseOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-            log.triggerOtherNote = log.trigger == .other ? triggerOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-        } else {
-            log.responseOtherNote = nil
-            log.triggerOtherNote = nil
-        }
+        // draft -> model に反映
+        log.createdAt = draft.createdAt
+        log.kind = draft.kind
+        log.severity = draft.severity
+        log.response = draft.response
+        log.responseOtherNote = draft.response == .other ? draft.responseOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        log.trigger = draft.trigger
+        log.triggerOtherNote = draft.trigger == .other ? draft.triggerOther.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        log.sweating = draft.sweating
+        let trimmedDetail = draft.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        log.detail = trimmedDetail.isEmpty ? nil : trimmedDetail
+
         dismiss()
     }
 
     private func syncStateFromModel() {
-        responseOther = log.responseOtherNote ?? ""
-        triggerOther = log.triggerOtherNote ?? ""
-        date = log.createdAt
+        // モデルの現在値をドラフトへ同期（onAppear のため）
+        draft = Draft(
+            createdAt: log.createdAt,
+            severity: log.severity,
+            response: log.response,
+            responseOther: log.responseOtherNote ?? "",
+            trigger: log.trigger,
+            triggerOther: log.triggerOtherNote ?? "",
+            sweating: log.sweating,
+            detail: log.detail ?? "",
+            kind: log.kind
+        )
+        previousKind = draft.kind
     }
 }
 

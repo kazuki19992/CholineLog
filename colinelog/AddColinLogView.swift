@@ -204,7 +204,7 @@ private struct SeverityPill: View {
                 Capsule()
                     .stroke(isSelected ? color.opacity(0.95) : Color.secondary.opacity(0.3), lineWidth: isSelected ? 1.4 : 1)
             )
-            .foregroundStyle(isSelected ? (color == .yellow ? Color.black : Color.white) : Color.primary)
+            .foregroundStyle(isSelected ? (severity == .level3 ? Color.black : Color.white) : Color.primary)
             .contentShape(Capsule())
             .accessibilityLabel("強さ \(severity.rawValue) \(severity.label)" + (isSelected ? " 選択中" : ""))
             .animation(nil, value: isSelected)
