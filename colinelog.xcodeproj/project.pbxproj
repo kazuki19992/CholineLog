@@ -261,7 +261,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n\"${PROJECT_DIR}/Tools/generate_licenses.sh\" > \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Licenses.json\" || true\n";
+			shellScript = "if ! command -v license-plist >/dev/null 2>&1; then\n  echo \\\"[WARN] license-plist 未インストール。Licenses.json 更新をスキップ\\\" >&2\n  exit 0\nfi\nset -euo pipefail\nlicense-plist --config-path \\\"$SRCROOT/license_plist.yml\\\" --force || { echo \\\"license-plist 失敗\\\" >&2; exit 1; }\nbash \\\"$SRCROOT/Tools/licenseplist_to_json.sh\\\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

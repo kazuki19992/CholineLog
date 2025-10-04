@@ -30,7 +30,6 @@ for d in "${CANDIDATES[@]}"; do
     BASE_DIR="$d"
     break
   fi
-  # 場合によっては直下ではなく別名 (古い構成) を見る
   f=$(find "$d" -maxdepth 2 -type f -name 'com.mono0926.LicensePlist.plist' 2>/dev/null | head -n1 || true)
   if [ -n "$f" ]; then
     PLIST_PATH="$f"; BASE_DIR=$(dirname "$f"); break
@@ -50,41 +49,39 @@ else
 fi
 mkdir -p "$OUT_DIR"
 OUT_FILE="${OUT_DIR}/Licenses.json"
+export OUT_FILE
 
-# 変換: plutil で JSON 化し python で加工
 TMP_JSON=$(mktemp)
 trap 'rm -f "$TMP_JSON"' EXIT
 plutil -convert json -o "$TMP_JSON" "$PLIST_PATH"
+export TMP_JSON
+export BASE_DIR
 
 python3 - <<'PY'
-import json, uuid, os, sys
-pl = json.load(open(os.environ['TMP_JSON'],'r',encoding='utf-8')) if 'TMP_JSON' in os.environ else json.load(open(sys.argv[1],'r',encoding='utf-8'))
+import json, uuid, os
+pl = json.load(open(os.environ['TMP_JSON'],'r',encoding='utf-8'))
 base_dir = os.environ.get('BASE_DIR','.')
 entries = []
-# LicensePlist の構造: { PreferenceSpecifiers: [ { Title, File? , FooterText? }, ... ] }
 for item in pl.get('PreferenceSpecifiers', []):
     title = item.get('Title')
     if not title:
         continue
     text = ''
-    # 優先: FooterText (inline) → File (外部ファイル) → 説明フィールド群
-    if 'FooterText' in item and item['FooterText']:
+    if item.get('FooterText'):
         text = item['FooterText'].strip()
-    elif 'File' in item and item['File']:
+    elif item.get('File'):
         file_path = os.path.join(base_dir, 'com.mono0926.LicensePlist', item['File'])
         if os.path.isfile(file_path):
             with open(file_path,'r',encoding='utf-8',errors='replace') as fh:
                 text = fh.read().strip()
     else:
-        # 予備: License, Body, Description といったキーをスキャン
-        for k in ('License','Body','Description'): # 存在すれば採用
-            if k in item and item[k]:
+        for k in ('License','Body','Description'):
+            if item.get(k):
                 text = str(item[k]).strip(); break
     if not text:
         continue
-    entries.append({ 'id': uuid.uuid4().hex, 'name': title, 'text': text })
+    entries.append({'id': uuid.uuid4().hex, 'name': title, 'text': text})
 
-# Swift を含まない場合は既存ポリシーへ合わせ注入
 lower_names = { e['name'].lower() for e in entries }
 if 'swift' not in lower_names:
     entries.append({'id': uuid.uuid4().hex,'name':'Swift','text':'Swift Apache 2.0 License\nhttps://github.com/swiftlang/swift/blob/main/LICENSE.txt'})
