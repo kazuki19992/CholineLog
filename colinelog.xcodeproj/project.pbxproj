@@ -115,6 +115,7 @@
 				4F8EC45B2E7FD7780042530C /* Sources */,
 				4F8EC45C2E7FD7780042530C /* Frameworks */,
 				4F8EC45D2E7FD7780042530C /* Resources */,
+				4FAD17662E90D1C1003E20C8 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -243,6 +244,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4FAD17662E90D1C1003E20C8 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n\"${PROJECT_DIR}/Tools/generate_licenses.sh\" > \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Licenses.json\" || true\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4F8EC45B2E7FD7780042530C /* Sources */ = {

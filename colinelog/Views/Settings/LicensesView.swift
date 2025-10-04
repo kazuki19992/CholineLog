@@ -1,186 +1,121 @@
 import SwiftUI
 
-private struct LicenseEntry: Identifiable, Codable {
-    let id: UUID
-    let name: String
-    let text: String
-
-    init(id: UUID = UUID(), name: String, text: String) {
-        self.id = id
-        self.name = name
-        self.text = text
-    }
-}
-
 struct LicensesView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var licenses: [LicenseEntry] = []
-    @State private var selected: LicenseEntry? = nil
+    @State private var licenses: [[String: Any]] = []
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if licenses.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
-                        Text("ライセンス情報が見つかりませんでした")
-                            .font(.headline)
-                        Text("Bundle に Licenses.json を追加するか、依存ライブラリのライセンスファイルがバンドルに含まれていることを確認してください。")
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                            .padding()
-                    }
-                    .padding()
-                } else {
-                    List(licenses) { entry in
-                        Button(action: { selected = entry }) {
-                            HStack {
-                                Text(entry.name)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(Rectangle())
+        List {
+            if licenses.isEmpty {
+                VStack(spacing: 12) {
+                    Text("ライセンス情報が見つかりません")
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 12) {
+                        Button(action: loadLicenses) {
+                            Text("再読み込み")
+                        }
+                        Button(action: { dismiss() }) {
+                            Text("閉じる")
                         }
                     }
-                    .listStyle(.insetGrouped)
                 }
-            }
-            .navigationTitle("ライセンス")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("閉じる") { dismiss() }
-                }
-            }
-            .onAppear { Task { await loadLicenses() } }
-            .sheet(item: $selected) { entry in
-                NavigationStack {
-                    ScrollView {
-                        Text(entry.text)
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ForEach(licenses.indices, id: \.self) { idx in
+                    let item = licenses[idx]
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text((item["name"] as? String) ?? (item["project"] as? String) ?? "Unknown")
+                            .font(.headline)
+                        if let license = item["license"] as? String {
+                            Text(license)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                                .lineLimit(5)
+                        } else if let text = item["text"] as? String {
+                            Text(text)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                                .lineLimit(5)
+                        }
+                        HStack {
+                            if let version = item["version"] as? String {
+                                Text("Version: \(version)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if let url = item["url"] as? String {
+                                Text(url)
+                                    .font(.caption2)
+                                    .foregroundColor(.blue)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
-                    .navigationTitle(entry.name)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { selected = nil } } }
+                    .padding(.vertical, 6)
                 }
             }
         }
+        .navigationTitle("ライセンス")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("閉じる") { dismiss() }
+            }
+        }
+        .onAppear(perform: loadLicenses)
     }
 
-    private func loadLicenses() async {
-        // First: try well-known JSON files in main bundle
-        let jsonCandidates = ["Licenses", "ThirdPartyLicenses", "ThirdPartyAcknowledgements"]
-        let dec = JSONDecoder()
-        for name in jsonCandidates {
-            if let url = Bundle.main.url(forResource: name, withExtension: "json") {
-                if let data = try? Data(contentsOf: url), let decoded = try? dec.decode([LicenseEntry].self, from: data) {
-                    await MainActor.run { licenses = decoded }
-                    return
+    private func findLicensesInBundle() -> URL? {
+        if let url = Bundle.main.url(forResource: "Licenses", withExtension: "json") {
+            return url
+        }
+        if let resURL = Bundle.main.resourceURL {
+            let fm = FileManager.default
+            if let enumerator = fm.enumerator(at: resURL, includingPropertiesForKeys: nil) {
+                for case let fileURL as URL in enumerator {
+                    if fileURL.lastPathComponent.lowercased() == "licenses.json" {
+                        return fileURL
+                    }
                 }
             }
         }
+        return nil
+    }
 
-        // Perform bundle scanning off the main actor using DispatchQueue
-        let foundPairs: [(String, String)] = await withCheckedContinuation { (continuation: CheckedContinuation<[(String, String)], Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var results: [(String, String)] = []
-                let fm = FileManager.default
-
-                // Collect bundles (keep order but dedupe by identifier/path)
-                var allBundles = [Bundle.main]
-                allBundles.append(contentsOf: Bundle.allBundles)
-                allBundles.append(contentsOf: Bundle.allFrameworks)
-                var seen = Set<String>()
-                var uniqueBundles: [Bundle] = []
-                for b in allBundles {
-                    let id = b.bundleIdentifier ?? "<anon>:\(b.bundlePath)"
-                    if !seen.contains(id) {
-                        seen.insert(id)
-                        uniqueBundles.append(b)
-                    }
-                }
-
-                let filenameCandidates = ["LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING", "NOTICE"]
-
-                for bundle in uniqueBundles {
-                    let displayName = (bundle.infoDictionary?["CFBundleName"] as? String) ?? bundle.bundleIdentifier ?? "Unknown"
-
-                    // direct resource lookups
-                    for cand in filenameCandidates {
-                        if let url = bundle.url(forResource: cand, withExtension: nil) ?? bundle.url(forResource: cand, withExtension: "txt") ?? bundle.url(forResource: cand, withExtension: "md") {
-                            if let text = try? String(contentsOf: url) {
-                                results.append((displayName, text))
-                            }
-                        }
-                    }
-
-                    // scan resource directory
-                    if let resourcePath = bundle.resourcePath, let items = try? fm.contentsOfDirectory(atPath: resourcePath) {
-                        for item in items {
-                            let lower = item.lowercased()
-                            if lower.contains("license") || lower.contains("notice") || lower == "copying" {
-                                let full = URL(fileURLWithPath: resourcePath).appendingPathComponent(item)
-                                if let text = try? String(contentsOf: full) {
-                                    results.append((displayName, text))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Deduplicate by (name + text)
-                var uniqueResults: [(String, String)] = []
-                var seen2 = Set<String>()
-                for (n, t) in results {
-                    let key = n + "\u{1F}" + t
-                    if !seen2.contains(key) {
-                        seen2.insert(key)
-                        uniqueResults.append((n, t))
-                    }
-                }
-
-                continuation.resume(returning: uniqueResults)
-            }
-        }
-
-        if !foundPairs.isEmpty {
-            await MainActor.run {
-                licenses = foundPairs.map { LicenseEntry(name: $0.0, text: $0.1) }
-            }
+    private func loadLicenses() {
+        guard let url = findLicensesInBundle() else {
+            #if DEBUG
+            print("Licenses.json がバンドルに見つかりません")
+            #endif
+            licenses = []
             return
         }
 
-        // Fallback: try LICENSES.txt splitting by marker (main bundle)
-        if let txtURL = Bundle.main.url(forResource: "LICENSES", withExtension: "txt"), let raw = try? String(contentsOf: txtURL) {
-            let parts = raw.components(separatedBy: "\n----\n")
-            await MainActor.run {
-                licenses = parts.enumerated().map { idx, part in
-                    LicenseEntry(name: "ライセンス \(idx + 1)", text: part)
+        do {
+            let data = try Data(contentsOf: url)
+            let obj = try JSONSerialization.jsonObject(with: data, options: [])
+            if let arr = obj as? [[String: Any]] {
+                licenses = arr
+            } else if let dict = obj as? [String: Any] {
+                if let arr = dict["licenses"] as? [[String: Any]] {
+                    licenses = arr
+                } else {
+                    licenses = [dict]
                 }
             }
-            return
+        } catch {
+            #if DEBUG
+            print("Licenses.json の読み込みに失敗: \(error)")
+            #endif
+            licenses = []
         }
-
-        // nothing found -> leave empty
     }
 }
 
-// Simple helper to uniquify an array by key
-extension Array {
-    func unique<T: Hashable>(_ key: (Element) -> T) -> [Element] {
-        var seen = Set<T>()
-        var out: [Element] = []
-        for e in self {
-            let k = key(e)
-            if !seen.contains(k) {
-                seen.insert(k)
-                out.append(e)
-            }
+struct LicensesView_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationView {
+            LicensesView()
         }
-        return out
     }
 }
