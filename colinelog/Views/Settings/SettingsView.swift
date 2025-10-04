@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var showImporter = false
+    @State private var showLicenses = false
     @State private var importError: String? = nil
     @State private var importSuccessCount: Int? = nil
 
@@ -21,6 +22,17 @@ struct SettingsView: View {
                     }
                     .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { handleImport($0) }
                 }
+                Section("アプリ") {
+                    Button { showLicenses = true } label: {
+                        Label("ライセンス", systemImage: "doc.plaintext")
+                    }
+                    HStack () {
+                        Label("アプリバージョン", systemImage: "gear",)
+                        Spacer()
+                        Text (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "不明")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("設定")
             .alert("インポート結果", isPresented: Binding(get: { importSuccessCount != nil }, set: { if !$0 { importSuccessCount = nil } })) {
@@ -29,6 +41,9 @@ struct SettingsView: View {
             .alert("インポートエラー", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
                 Button("OK", role: .cancel) { importError = nil }
             } message: { Text(importError ?? "") }
+            .fullScreenCover(isPresented: $showLicenses) {
+                LicensesView()
+            }
         }
     }
 
