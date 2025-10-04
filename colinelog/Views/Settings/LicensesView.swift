@@ -5,64 +5,62 @@ struct LicensesView: View {
     @State private var licenses: [[String: Any]] = []
 
     var body: some View {
-        List {
-            if licenses.isEmpty {
-                VStack(spacing: 12) {
-                    Text("ライセンス情報が見つかりません")
-                        .foregroundColor(.secondary)
-                    HStack(spacing: 12) {
-                        Button(action: loadLicenses) {
-                            Text("再読み込み")
+        NavigationStack {
+            ZStack {
+                List {
+                    if licenses.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("ライセンス情報の取得に失敗しました")
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            Text("アプリに Licenses.json が含まれているかビルド設定を確認してください。")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
                         }
-                        Button(action: { dismiss() }) {
-                            Text("閉じる")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ForEach(licenses.indices, id: \.self) { idx in
+                            let item = licenses[idx]
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text((item["name"] as? String) ?? (item["project"] as? String) ?? "Unknown")
+                                    .font(.headline)
+                                if let license = item["license"] as? String {
+                                    Text(license)
+                                        .font(.subheadline)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(5)
+                                } else if let text = item["text"] as? String {
+                                    Text(text)
+                                        .font(.subheadline)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(5)
+                                }
+                                HStack {
+                                    if let version = item["version"] as? String {
+                                        Text("Version: \(version)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    if let url = item["url"] as? String {
+                                        Text(url)
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 6)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ForEach(licenses.indices, id: \.self) { idx in
-                    let item = licenses[idx]
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text((item["name"] as? String) ?? (item["project"] as? String) ?? "Unknown")
-                            .font(.headline)
-                        if let license = item["license"] as? String {
-                            Text(license)
-                                .font(.subheadline)
-                                .foregroundColor(.primary)
-                                .lineLimit(5)
-                        } else if let text = item["text"] as? String {
-                            Text(text)
-                                .font(.subheadline)
-                                .foregroundColor(.primary)
-                                .lineLimit(5)
-                        }
-                        HStack {
-                            if let version = item["version"] as? String {
-                                Text("Version: \(version)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            if let url = item["url"] as? String {
-                                Text(url)
-                                    .font(.caption2)
-                                    .foregroundColor(.blue)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 6)
-                }
             }
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("ライセンス")
+            .toolbar{ toolbar }
+            .onAppear(perform: loadLicenses)
         }
-        .navigationTitle("ライセンス")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("閉じる") { dismiss() }
-            }
-        }
-        .onAppear(perform: loadLicenses)
     }
 
     private func findLicensesInBundle() -> URL? {
@@ -110,6 +108,14 @@ struct LicensesView: View {
             licenses = []
         }
     }
+    
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button(action: { dismiss() }) { Text("閉じる") }
+        }
+    }
+
 }
 
 struct LicensesView_Previews: PreviewProvider {
@@ -119,3 +125,4 @@ struct LicensesView_Previews: PreviewProvider {
         }
     }
 }
+
