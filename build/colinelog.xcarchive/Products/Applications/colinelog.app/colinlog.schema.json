@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/colinelog.schema.json",
+  "title": "ColinLog import/export schema",
+  "description": "コリンログのJSONインポート/エクスポートで期待されるスキーマ。ルートは配列または { \"rows\": [...] } のいずれかを受け付けます。配列形式は従来のエクスポート (schemaVersion 1 相当) として扱われます。",
+  "oneOf": [
+    {
+      "type": "array",
+      "items": { "$ref": "#/definitions/row" }
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1,
+          "description": "スキーマバージョン (固定値 1)。将来バージョンが増えたら別ファイルでスキーマを用意します。"
+        },
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/row" }
+        }
+      },
+      "required": ["rows"],
+      "additionalProperties": true
+    }
+  ],
+
+  "definitions": {
+    "row": {
+      "type": "object",
+      "description": "単一ログエントリ",
+      "properties": {
+        "createdAt": {
+          "description": "ISO8601 形式の日時文字列または UNIX 時間 (秒)。例: \"2023-08-01T12:34:56Z\" または 1690895696",
+          "anyOf": [
+            { "type": "string" },
+            { "type": "number" }
+          ]
+        },
+        "severity": {
+          "description": "重症度。整数 1〜5 または数値文字列を許容。",
+          "anyOf": [
+            { "type": "integer", "minimum": 1, "maximum": 5 },
+            { "type": "string", "pattern": "^[1-5]$" }
+          ]
+        },
+        "response": {
+          "type": "string",
+          "enum": [
+            "none",
+            "icePack",
+            "shower",
+            "coolSpray",
+            "coolPlace",
+            "antiItch",
+            "drinkWater",
+            "deepBreath",
+            "scratched",
+            "other"
+          ]
+        },
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "stressEmotion",
+            "exercise",
+            "bath",
+            "highTemp",
+            "afterSweat",
+            "spicyHotIntake",
+            "nightSweat",
+            "dontKnow",
+            "other"
+          ]
+        },
+        "sweating": {
+          "type": "string",
+          "enum": ["none", "moist", "little", "much"]
+        },
+        "detail": { "type": ["string", "null"] },
+        "kind": { "type": "string", "enum": ["symptom", "memo"] },
+        "rash": {
+          "type": ["string", "null"],
+          "enum": ["noRash", "light", "heavy", null]
+        }
+      },
+      "required": ["createdAt", "severity", "response", "trigger", "sweating", "kind"],
+      "additionalProperties": true
+    }
+  },
+
+  "examples": [
+    [
+      {
+        "createdAt": "2023-08-01T12:34:56Z",
+        "severity": 3,
+        "response": "icePack",
+        "trigger": "highTemp",
+        "sweating": "much",
+        "detail": "腕にチクチク感",
+        "kind": "symptom",
+        "rash": "light"
+      }
+    ],
+    {
+      "rows": [
+        {
+          "createdAt": 1690895696,
+          "severity": "2",
+          "response": "none",
+          "trigger": "dontKnow",
+          "sweating": "none",
+          "detail": null,
+          "kind": "memo",
+          "rash": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# 依存解析: SwiftPM (Package.resolved) は自動検出
+output-path: build/licenseplist        # 一時出力先（任意）
+force: true
+add-version-numbers: true
+single-bundle: true
