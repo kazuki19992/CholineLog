@@ -14,6 +14,10 @@ struct ContentView: View {
     @State private var selection: MainTab = .overview
     @State private var lastNonAddSelection: MainTab = .overview
     @State private var showAddSheet = false
+    // マイグレーション用
+    @Environment(\.modelContext) private var modelContext
+    @State private var migrationResultCount: Int? = nil
+    @State private var showMigrationAlert = false
     var body: some View {
         TabView(selection: $selection) {
             OverviewView()
@@ -28,6 +32,19 @@ struct ContentView: View {
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape") }
                 .tag(MainTab.settings)
+        }
+        .task {
+            // 一度だけ実行
+            if migrationResultCount == nil {
+                let updated = DataMigrations.fixNilRashIfNeeded(context: modelContext)
+                migrationResultCount = updated
+                if updated > 0 { showMigrationAlert = true }
+            }
+        }
+        .alert("データ移行完了", isPresented: $showMigrationAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Rash の nil フィールドを \(migrationResultCount ?? 0) 件更新しました")
         }
     }
 }

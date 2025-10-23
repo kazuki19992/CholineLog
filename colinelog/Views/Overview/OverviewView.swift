@@ -12,7 +12,7 @@ struct OverviewView: View {
     private var dayLogs: [ColinLog] { vm.dayLogs(from: allLogs) }
 
     var body: some View {
-        ZStack { backgroundGradient
+        ZStack {
             NavigationStack {
                 scrollContent
                     .navigationTitle("概要")
@@ -129,11 +129,6 @@ private extension OverviewView {
 
 // MARK: - Helpers / Common UI
 private extension OverviewView {
-    // 旧: listContent は削除
-    var backgroundGradient: some View {
-        LinearGradient(colors: [.blue, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-            .ignoresSafeArea()
-    }
     var dateNavigator: some View { EmptyView() } // 未使用
     var dateNavigatorToolbar: some View { EmptyView() } // toolbar principal から排除
     var daySwipeGesture: some Gesture {

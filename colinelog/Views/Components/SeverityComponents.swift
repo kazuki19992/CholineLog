@@ -130,6 +130,23 @@ struct SweatLevelInline: View {
     }
 }
 
+// 発疹インライン
+struct RashLevelInline: View {
+    let rash: ColinLog.RashLevel
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: rash.iconSystemName)
+                .font(.system(size: 18, weight: .regular))
+                .foregroundColor(rash.color)
+            Text(rash.label)
+                .font(.caption2)
+                .foregroundColor(rash.color)
+        }
+        .frame(width: SeverityBadge.fixedWidth)
+        .accessibilityLabel("発疹: \(rash.label)")
+    }
+}
+
 // ローセル
 struct ColinLogRow: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -163,6 +180,9 @@ struct ColinLogRow: View {
                     HStack(spacing: 2) {
                         Text(log.createdAt.colinMonthDay).font(.caption).bold().monospacedDigit()
                         Text(log.createdAt.colinTimeHHmm).font(.caption).bold().monospacedDigit()
+                        Spacer()
+                        // rash が .noRash 以外なら表示
+                        if log.rash != .noRash { rashText }
                     }
                     HStack(spacing: 6) { triggerTag; responseTag }
                     Text(log.detail ?? "詳細はありません")
@@ -192,10 +212,23 @@ struct ColinLogRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .accessibilityLabel("メモ")
     }
-    private var triggerTag: some View { combinedTag(label: "原因", icon: log.trigger.iconSystemName, text: log.triggerDescription, color: triggerColor(log.trigger)) }
-    private var responseTag: some View { combinedTag(label: "対処", icon: log.response.iconSystemName, text: log.responseDescription, color: responseColor(log.response)) }
+    private var triggerTag: some View { combinedTag(label: "原因", icon: log.trigger.iconSystemName, text: log.triggerDescription, color: log.trigger.color) }
+    private var responseTag: some View { combinedTag(label: "対処", icon: log.response.iconSystemName, text: log.responseDescription, color: log.response.color) }
+    private var rashText: some View {
+        let color = log.rash.color
+        return HStack(spacing: 6) {
+            Image(systemName: log.rash.iconSystemName)
+                .font(.caption2)
+                .foregroundColor(color)
+            Text(log.rashDescription)
+                .font(.caption2)
+                .foregroundColor(color)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+    }
     private func combinedTag(label: String, icon: String, text: String, color: Color) -> some View {
-        HStack(spacing: 4) {
+        return HStack(spacing: 4) {
             Text(label)
                 .font(.system(size: 9, weight: .bold))
                 .padding(.horizontal,5).padding(.vertical,2)
@@ -208,29 +241,5 @@ struct ColinLogRow: View {
         .padding(.horizontal,8).padding(.vertical,4)
         .background(Capsule().fill(color.opacity(0.12)))
         .overlay(Capsule().stroke(color.opacity(0.4), lineWidth: 1))
-    }
-    private func triggerColor(_ t: ColinLog.Trigger) -> Color {
-        switch t {
-        case .stressEmotion: return .orange
-        case .exercise: return .green
-        case .bath: return .teal
-        case .highTemp: return .red
-        case .afterSweat: return .blue
-        case .spicyHotIntake: return .pink
-        case .dontKnow: return .gray
-        case .other: return .gray
-        }
-    }
-    private func responseColor(_ r: ColinLog.ResponseAction) -> Color {
-        switch r {
-        case .none: return .gray
-        case .icePack: return .cyan
-        case .shower: return .teal
-        case .coolSpray: return .mint
-        case .coolPlace: return .cyan
-        case .antiItch: return .purple
-        case .scratched: return .orange
-        case .other: return .gray
-        }
     }
 }

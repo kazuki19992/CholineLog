@@ -4,6 +4,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI // 色指定用
 
 @Model
 final class ColinLog {
@@ -22,6 +23,21 @@ final class ColinLog {
         }
         var short: String { String(rawValue) }
     }
+    
+    // 発疹状態 (nil=記録なし)
+    enum RashLevel: String, CaseIterable, Identifiable, Codable {
+        case noRash      // 発疹なし
+        case light       // 薄い発疹あり
+        case heavy       // 濃い発疹あり
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .noRash: return "発疹なし"
+            case .light: return "薄い発疹"
+            case .heavy: return "濃い発疹"
+            }
+        }
+    }
 
     enum ResponseAction: String, CaseIterable, Identifiable, Codable {
         case none
@@ -30,6 +46,8 @@ final class ColinLog {
         case coolSpray // 冷感スプレーを使用した
         case coolPlace // 涼しい場所に避難した / 送風で冷ました
         case antiItch // かゆみ止めを使用した
+        case drinkWater // 水を飲んだ
+        case deepBreath // 深呼吸した
         case scratched // 掻きむしってしまった
         case other // その他
         var id: String { rawValue }
@@ -39,27 +57,29 @@ final class ColinLog {
             case .icePack: return "保冷剤を当てた"
             case .shower: return "水を浴びた"
             case .coolSpray: return "冷感スプレー"
-            case .coolPlace: return "涼しい場所に避難した"
+            case .coolPlace: return "風を当てた/涼しい場所に移動した"
             case .antiItch: return "かゆみ止め"
+            case .drinkWater: return "水を飲んだ"
+            case .deepBreath: return "深呼吸した"
             case .scratched: return "掻いた"
             case .other: return "その他"
             }
         }
-        static var allCases: [ResponseAction] { [.none, .icePack, .coolSpray, .coolPlace, .shower, .antiItch, .scratched, .other] }
+        static var allCases: [ResponseAction] { [.none, .drinkWater, .deepBreath, .icePack, .coolSpray, .coolPlace, .shower, .antiItch, .scratched, .other] }
     }
 
     enum SweatingLevel: String, CaseIterable, Identifiable, Codable {
         case none // 無汗
         case moist // しっとり
-        case little // 少し
-        case much // ダラダラ
+        case little // 粒汗
+        case much // 滝汗
         var id: String { rawValue }
         var label: String {
             switch self {
             case .none: return "無汗"
             case .moist: return "しっとり"
-            case .little: return "少し"
-            case .much: return "ダラダラ"
+            case .little: return "粒汗"
+            case .much: return "滝汗"
             }
         }
     }
@@ -71,6 +91,7 @@ final class ColinLog {
         case highTemp // 気温が高かった
         case afterSweat // 汗をかいた
         case spicyHotIntake // 辛いもの・熱いものを飲食した
+        case nightSweat // 寝汗
         case dontKnow // わからない
         case other // その他
         var id: String { rawValue }
@@ -80,8 +101,9 @@ final class ColinLog {
             case .exercise: return "運動した"
             case .bath: return "お風呂に入った"
             case .highTemp: return "気温が高かった"
-            case .afterSweat: return "汗をかいた"
+            case .afterSweat: return "汗をかいた/ムレた"
             case .spicyHotIntake: return "辛いもの・熱いものを飲食した"
+            case .nightSweat: return "寝汗/寝起き"
             case .dontKnow: return "わからない"
             case .other: return "その他"
             }
@@ -104,8 +126,10 @@ final class ColinLog {
     var sweating: SweatingLevel
     var detail: String?
     var kind: Kind
+    // 発疹状態 (非オプショナル化: 未記録も .noRash で表現)
+    var rash: RashLevel
 
-    init(createdAt: Date = Date(), severity: Severity, response: ResponseAction, responseOtherNote: String? = nil, trigger: Trigger = .stressEmotion, triggerOtherNote: String? = nil, sweating: SweatingLevel, detail: String? = nil, kind: Kind = .symptom) {
+    init(createdAt: Date = Date(), severity: Severity, response: ResponseAction, responseOtherNote: String? = nil, trigger: Trigger = .stressEmotion, triggerOtherNote: String? = nil, sweating: SweatingLevel, detail: String? = nil, kind: Kind = .symptom, rash: RashLevel = .noRash) {
         self.createdAt = createdAt
         self.severity = severity
         self.response = response
@@ -115,6 +139,7 @@ final class ColinLog {
         self.sweating = sweating
         self.detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : detail
         self.kind = kind
+        self.rash = rash
     }
 }
 
@@ -132,9 +157,12 @@ extension ColinLog {
         default: return trigger.label
         }
     }
+    var rashDescription: String { rash.label }
 }
 
 extension ColinLog.Trigger {
+    // 原因カテゴリ共通カラー
+    var color: Color { .orange }
     var iconSystemName: String {
         switch self {
         case .stressEmotion: return "exclamationmark.triangle"
@@ -143,6 +171,7 @@ extension ColinLog.Trigger {
         case .highTemp: return "thermometer.sun"
         case .afterSweat: return "drop"
         case .spicyHotIntake: return "flame"
+        case .nightSweat: return "bed.double"
         case .dontKnow: return "questionmark.circle"
         case .other: return "ellipsis"
         }
@@ -150,6 +179,8 @@ extension ColinLog.Trigger {
 }
 
 extension ColinLog.ResponseAction {
+    // 対応カテゴリ共通カラー
+    var color: Color { .teal }
     var iconSystemName: String {
         switch self {
         case .none: return "minus"
@@ -159,7 +190,30 @@ extension ColinLog.ResponseAction {
         case .coolPlace: return "fan"
         case .antiItch: return "bandage"
         case .scratched: return "hand.raised"
+        case .drinkWater: return "cup.and.saucer"
+        case .deepBreath: return "lungs"
         case .other: return "ellipsis"
+        }
+    }
+}
+
+// RashLevel の UI 表示に関するヘルパーをモデル側で提供
+extension ColinLog.RashLevel {
+    var color: Color {
+        switch self {
+        case .noRash: return .mint
+        case .light: return .orange
+        case .heavy: return .pink
+        }
+    }
+}
+
+extension ColinLog.RashLevel {
+    var iconSystemName: String {
+        switch self {
+        case .noRash: return "checkmark.circle"
+        case .light: return "microbe"
+        case .heavy: return "microbe.fill"
         }
     }
 }

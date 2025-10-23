@@ -15,8 +15,15 @@ struct LogDetailView: View {
                 } else {
                     GroupBox("日時") { HStack(spacing: 8) { Text(log.createdAt.colinISODate); Text(log.createdAt.colinTimeHHmm); Spacer() }.font(.body.monospacedDigit()) }
                     GroupBox("強さ") {
-                        SeverityBadge(severity: log.severity)
-                        SweatLevelInline(sweating: log.sweating)
+                        VStack(alignment: .center, spacing: 8) {
+                            SeverityBadge(severity: log.severity)
+                            SweatLevelInline(sweating: log.sweating)
+                            // 非オプショナル化後: .noRash の場合は表示しない（旧: nil の場合非表示）
+                            if log.rash != .noRash { RashLevelInline(rash: log.rash) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("強さ: レベル\(log.severity.rawValue) 発汗: \(log.sweating.label) 発疹: \(log.rash.label)")
                     }
                     VStack(spacing: 12) {
                         GroupBox("メインの発症原因") { Text(log.triggerDescription) }

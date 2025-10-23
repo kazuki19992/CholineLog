@@ -101,17 +101,27 @@ final class ExportViewModel: ObservableObject {
     // MARK: Generators
     private func exportPlainText(_ target: [ColinLog]) {
         let sorted = sortLogs(target)
-        let body = sorted.map {
-            formattedLog(for: $0, markdown: false)
-        }.joined(separator: "\n")
-        share(text: body, fileName: exportFileName(ext: "txt"))
+        var headerLines: [String] = []
+        headerLines.append("件数: \(sorted.count)")
+        var rashCounts: [String: Int] = [:]
+        for level in ColinLog.RashLevel.allCases { rashCounts[level.rawValue] = 0 }
+        for log in sorted { rashCounts[log.rash.rawValue, default: 0] += 1 }
+        let rashSummary = ColinLog.RashLevel.allCases.map { level in "\(level.label): \(rashCounts[level.rawValue] ?? 0)" }.joined(separator: ", ")
+        headerLines.append("発疹集計: \(rashSummary)")
+        let header = headerLines.joined(separator: "\n") + "\n\n"
+        let body = sorted.map { formattedLog(for: $0, markdown: false) }.joined(separator: "\n")
+        share(text: header + body, fileName: exportFileName(ext: "txt"))
     }
     private func exportMarkdown(_ target: [ColinLog]) {
-        var md = "# コリンログエクスポート\n\n件数: \(target.count)\n\n"
-        var prevDay: String? = nil
-        // 最新を最後にソート
         let sorted = sortLogs(target)
-        
+        var md = "# コリンログエクスポート\n\n"
+        md += "- 件数: \(sorted.count)\n"
+        var rashCounts: [String: Int] = [:]
+        for level in ColinLog.RashLevel.allCases { rashCounts[level.rawValue] = 0 }
+        for log in sorted { rashCounts[log.rash.rawValue, default: 0] += 1 }
+        for level in ColinLog.RashLevel.allCases { md += "- 発疹(\(level.label)): \(rashCounts[level.rawValue] ?? 0)\n" }
+        md += "\n"
+        var prevDay: String? = nil
         sorted.forEach { log in
             let currentDay = log.createdAt.colinISODate
             if prevDay != currentDay { md += "## \(currentDay)\n\n" }
@@ -123,22 +133,30 @@ final class ExportViewModel: ObservableObject {
     }
     private struct JSONRow: Codable {
         let createdAt: String; let severity: Int; let response: String; let trigger: String
-        let sweating: String; let detail: String?; let kind: String
+        let sweating: String; let rash: String?; let detail: String?; let kind: String
+        // 既存のエクスポート用は文字列日時を使う
+    }
+    // エクスポートルートに schemaVersion を含める（summary を出力しない）
+    private struct JSONExportRoot: Codable {
+        let schemaVersion: Int
+        let rows: [JSONRow]
     }
     private func exportJSON(_ target: [ColinLog]) {
         let iso = ISO8601DateFormatter()
         let rows = target.map { log in JSONRow(
-            createdAt: iso.string(from: log.createdAt),
-            severity: log.severity.rawValue,
-            response: log.response.rawValue,
-            trigger: log.trigger.rawValue,
-            sweating: log.sweating.rawValue,
-            detail: log.detail,
-            kind: log.kind.rawValue)
-        }
-        if let data = try? JSONEncoder().encode(rows) {
-            share(data: data, fileName: exportFileName(ext: "json"), uti: "public.json")
-        }
+             createdAt: iso.string(from: log.createdAt),
+             severity: log.severity.rawValue,
+             response: log.response.rawValue,
+             trigger: log.trigger.rawValue,
+             sweating: log.sweating.rawValue,
+             rash: log.rash.rawValue,
+             detail: log.detail,
+             kind: log.kind.rawValue)
+         }
+        let root = JSONExportRoot(schemaVersion: 1, rows: rows)
+         if let data = try? JSONEncoder().encode(root) {
+             share(data: data, fileName: exportFileName(ext: "json"), uti: "public.json")
+         }
     }
     private func exportPDF(_ target: [ColinLog]) {
         #if canImport(UIKit)
@@ -166,7 +184,16 @@ final class ExportViewModel: ObservableObject {
     // MARK: Helpers
     private func exportFileName(ext: String) -> String {
         let df = DateFormatter(); df.dateFormat = "yyyyMMdd_HHmm"
-        return "colinlog_\(df.string(from: Date())).\(ext)"
+        // 表示名: 独自 key(bundleDisplayName) -> CFBundleDisplayName -> CFBundleName の優先順
+        let rawName = (Bundle.main.object(forInfoDictionaryKey: "bundleDisplayName") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? "App"
+        // スラッグ化 (英数字のみ, 小文字化)
+        let slug = rawName.lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+        return "\(slug.isEmpty ? "export" : slug)_\(df.string(from: Date())).\(ext)"
     }
     private func formattedLog(for log: ColinLog, markdown: Bool) -> String {
         markdown ? getFormattedMarkdown(for: log) : getFormattedPlainText(for: log)
@@ -176,10 +203,11 @@ final class ExportViewModel: ObservableObject {
         if log.kind == .symptom {
             let level = "- Lv.\(log.severity.rawValue)"
             let sweating = "- 発汗: \(log.sweating.label)"
+            let rash = "- 発疹: \(log.rashDescription)"
             let trigger = "- 原因: \(log.triggerDescription)"
             let response = "- 対応: \(log.responseDescription)"
             let detail = log.detail?.replacingOccurrences(of: "\n\n", with: "\n")
-            return [time, level, sweating, trigger, response,
+            return [time, level, sweating, rash, trigger, response,
                     detail.map { "- 詳細: \($0)" } ?? nil]
                 .compactMap { $0 }.joined(separator: "\n")
         } else {
@@ -194,10 +222,11 @@ final class ExportViewModel: ObservableObject {
         if log.kind == .symptom {
             let level = "- Lv.\(log.severity.rawValue)"
             let sweating = "- 発汗: \(log.sweating.label)"
+            let rash = "- 発疹: \(log.rashDescription)"
             let trigger = "- 原因: \(log.triggerDescription)"
             let response = "- 対応: \(log.responseDescription)"
             let detail = log.detail
-            return [date, level, sweating, trigger, response,
+            return [date, level, sweating, rash, trigger, response,
                     detail.map { "- 詳細: \($0)" } ?? nil]
                 .compactMap { $0 }.joined(separator: "\n")
         } else {
